@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Wealth Manager</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+</head>
+<body class="bg-slate-950 text-slate-200">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect, Fragment } = React;
+
+    // --- FIREBASE CONFIGURATION ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyBTu0KY7ggU-idoBQUaqqAp1Lu-ikCmH14",
+      authDomain: "wealth-manager-50994.firebaseapp.com",
+      projectId: "wealth-manager-50994",
+      storageBucket: "wealth-manager-50994.firebasestorage.app",
+      messagingSenderId: "1030190749268",
+      appId: "1:1030190749268:web:f689215d30ed4bbc4a3fc1"
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
+    const PROJECT_APP_ID = 'wealth-manager-50994';
+
+    db.enablePersistence().catch((err) => console.log("Firebase Offline Error:", err.code));
+
+    const getUserPath = (uid, colName) => db.collection('artifacts').doc(PROJECT_APP_ID).collection('users').doc(uid).collection(colName);
+
+    // --- ICONS & LOGOS ---
+    const Icon = ({ name, size, className = '' }) => (
+      <i className={`fa-solid ${name} ${className}`} style={{ fontSize: size ? `${size}px` : undefined }}></i>
+    );
+
+    const CustomLogo = ({ className }) => (
+      <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
+        <rect width="100" height="100" fill="#0A2E13" />
+        <path d="M 8 32 a 8 8 0 0 1 8 -8 h 10 v -10 a 8 8 0 0 1 8 -8 h 32 a 8 8 0 0 1 8 8 v 10 h 10 a 8 8 0 0 1 8 8 v 52 a 8 8 0 0 1 -8 8 h -76 a 8 8 0 0 1 -8 -8 z" fill="#339C32" />
+        <rect x="32" y="14" width="36" height="12" rx="4" fill="#0A2E13" />
+        <rect x="16" y="36" width="18" height="48" rx="4" fill="#0A2E13" />
+        <rect x="41" y="36" width="18" height="48" rx="4" fill="#0A2E13" />
+        <rect x="66" y="36" width="18" height="48" rx="4" fill="#0A2E13" />
+      </svg>
+    );
+
+    const GoogleIcon = () => (
+      <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+      </svg>
+    );
+
+    const ASSET_CATEGORIES = {
+      CRYPTO: { name: 'Cryptocurrency', icon: 'fa-coins', color: '#f59e0b', hasUnits: true, unitName: 'Coins' },
+      IN_STOCK: { name: 'Indian Stocks', icon: 'fa-arrow-trend-up', color: '#f97316', hasUnits: true, unitName: 'Shares' },
+      US_STOCK: { name: 'US Stocks', icon: 'fa-globe', color: '#3b82f6', hasUnits: true, unitName: 'Shares' },
+      MF_LARGE: { name: 'MF - Large Cap', icon: 'fa-chart-pie', color: '#8b5cf6', hasUnits: false },
+      MF_MID: { name: 'MF - Mid Cap', icon: 'fa-chart-pie', color: '#d946ef', hasUnits: false },
+      MF_SMALL: { name: 'MF - Small Cap', icon: 'fa-chart-pie', color: '#ec4899', hasUnits: false },
+      REAL_ESTATE: { name: 'Real Estate', icon: 'fa-house', color: '#10b981', hasUnits: false },
+      COMMODITY: { name: 'Commodities', icon: 'fa-gem', color: '#eab308', hasUnits: true, unitName: 'Units' },
+      BOND: { name: 'Bonds', icon: 'fa-landmark', color: '#64748b', hasUnits: false },
+      FD: { name: 'Fixed Deposits', icon: 'fa-shield-halved', color: '#0ea5e9', hasUnits: false }
+    };
+
+    const LIABILITY_CATEGORIES = {
+      HOME_LOAN: { name: 'Home Loan', icon: 'fa-house', color: '#ec4899' },
+      AUTO_LOAN: { name: 'Auto/Car Loan', icon: 'fa-car', color: '#8b5cf6' },
+      PERSONAL_LOAN: { name: 'Personal Loan', icon: 'fa-file-lines', color: '#f59e0b' },
+      CREDIT_CARD: { name: 'Credit Card Debt', icon: 'fa-credit-card', color: '#ef4444' }
+    };
+
+    function App() {
+      const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+      // --- STATE ---
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+      const [authMode, setAuthMode] = useState('login'); 
+      const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
+      const [authError, setAuthError] = useState('');
+
+      const [customPassword, setCustomPassword] = useState(''); 
+      const [passwordInput, setPasswordInput] = useState('');
+      const [passwordError, setPasswordError] = useState(false);
+      const [isAppLocked, setIsAppLocked] = useState(false);
+      const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+      const [passwordChangeData, setPasswordChangeData] = useState({ current: '', new: '', confirm: '' });
+
+      const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+      const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+      const [isYieldModalOpen, setIsYieldModalOpen] = useState(false);
+      const [isLiabilityModalOpen, setIsLiabilityModalOpen] = useState(false);
+      const [isPayEmiModalOpen, setIsPayEmiModalOpen] = useState(false);
+      const [sellModalData, setSellModalData] = useState(null);
+      const [expandedCategories, setExpandedCategories] = useState(Object.keys(ASSET_CATEGORIES).reduce((acc, key) => ({ ...acc, [key]: true }), {}));
+      const [expandedAssets, setExpandedAssets] = useState({});
+
+      const [transactions, setTransactions] = useState([]); 
+      const [holdings, setHoldings] = useState([]); 
+      const [liabilities, setLiabilities] = useState([]);
+      const [incomeSources, setIncomeSources] = useState(['Primary Salary', 'Business Income', 'Freelance Work', 'Rental Income']);
+
+      const [editingAssetId, setEditingAssetId] = useState(null);
+      const [editingTransactionId, setEditingTransactionId] = useState(null);
+      const [editingLiabilityId, setEditingLiabilityId] = useState(null);
+
+      const [newAsset, setNewAsset] = useState({ category: 'IN_STOCK', name: '', invested: '', buyPrice: '', currentPrice: '', manualCurrentValue: '', date: getTodayDate() });
+      const [newTransaction, setNewTransaction] = useState({ type: 'INCOME', source: 'Primary Salary', customSource: '', amount: '', date: getTodayDate() });
+      const [yieldData, setYieldData] = useState({ assetId: null, assetName: '', amount: '', date: getTodayDate() });
+      const [newLiability, setNewLiability] = useState({ category: 'PERSONAL_LOAN', name: '', totalAmount: '', paidAmount: '', monthlyEmi: '', date: getTodayDate() });
+      const [emiData, setEmiData] = useState({ liabilityId: null, name: '', amount: '', date: getTodayDate() });
+
+      // --- FIREBASE SYNC ---
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+          setUser(currentUser);
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!user) { setHoldings([]); setTransactions([]); setLiabilities([]); return; }
+        const unsubHoldings = getUserPath(user.uid, 'holdings').onSnapshot(snap => setHoldings(snap.docs.map(doc => doc.data())));
+        const unsubTx = getUserPath(user.uid, 'transactions').onSnapshot(snap => setTransactions(snap.docs.map(doc => doc.data())));
+        const unsubLiab = getUserPath(user.uid, 'liabilities').onSnapshot(snap => setLiabilities(snap.docs.map(doc => doc.data())));
+        const unsubSettings = db.collection('artifacts').doc(PROJECT_APP_ID).collection('users').doc(user.uid).collection('settings').doc('profile').onSnapshot(docSnap => {
+            if (docSnap.exists && docSnap.data().incomeSources) setIncomeSources(docSnap.data().incomeSources);
+        });
+        return () => { unsubHoldings(); unsubTx(); unsubLiab(); unsubSettings(); };
+      }, [user]);
+
+      // --- AUTH ---
+      const handleAuthSubmit = async (e) => {
+        e.preventDefault(); setAuthError('');
+        try {
+          if (authMode === 'signup') {
+            const userCred = await auth.createUserWithEmailAndPassword(authForm.email, authForm.password);
+            await userCred.user.updateProfile({ displayName: authForm.name });
+            setUser({ ...userCred.user, displayName: authForm.name });
+          } else { await auth.signInWithEmailAndPassword(authForm.email, authForm.password); }
+        } catch (err) { setAuthError(err.message.replace('Firebase: ', '')); }
+      };
+
+      const handleGoogleAuth = async () => {
+        setAuthError('');
+        try { await auth.signInWithPopup(googleProvider); } 
+        catch (err) { setAuthError(err.message.replace('Firebase: ', '')); }
+      };
+
+      const handleLogout = () => auth.signOut();
+
+      const handleAppLogin = (e) => {
+        e.preventDefault();
+        if (passwordInput === customPassword) { setIsAppLocked(false); setPasswordError(false); setPasswordInput(''); } 
+        else { setPasswordError(true); setPasswordInput(''); }
+      };
+
+      const handleSetOrChangePassword = (e) => {
+        e.preventDefault();
+        if (customPassword && passwordChangeData.current !== customPassword) return alert('Current PIN incorrect');
+        if (passwordChangeData.new !== passwordChangeData.confirm) return alert('PINs do not match');
+        setCustomPassword(passwordChangeData.new);
+        setIsSettingsModalOpen(false);
+        setPasswordChangeData({ current: '', new: '', confirm: '' });
+      };
+
+      // --- STATS ---
+      const transactionStats = useMemo(() => {
+        let totalIncome = 0; let totalWithdrawal = 0;
+        transactions.forEach(t => {
+          if (t.type === 'INCOME') totalIncome += t.amount; 
+          else totalWithdrawal += t.amount;
+        });
+        return { totalIncome, totalWithdrawal, netCashFlow: totalIncome - totalWithdrawal };
+      }, [transactions]);
+
+      const liabilityStats = useMemo(() => {
+        let totalBorrowed = 0; let totalPaid = 0; let totalMonthlyEmi = 0;
+        liabilities.forEach(l => { totalBorrowed += l.totalAmount; totalPaid += l.paidAmount; totalMonthlyEmi += l.monthlyEmi; });
+        return { totalBorrowed, totalPaid, totalRemaining: totalBorrowed - totalPaid, totalMonthlyEmi };
+      }, [liabilities]);
+
+      const formCalculations = useMemo(() => {
+        const isTracked = ASSET_CATEGORIES[newAsset.category]?.hasUnits;
+        const invested = parseFloat(newAsset.invested) || 0;
+        if (isTracked) {
+          const buyP = parseFloat(newAsset.buyPrice) || 0;
+          const curP = parseFloat(newAsset.currentPrice) || 0;
+          const quantity = buyP > 0 ? invested / buyP : 0;
+          return { quantity, currentValue: quantity * curP, currentPrice: curP };
+        } else {
+          return { quantity: 0, currentValue: parseFloat(newAsset.manualCurrentValue) || invested, currentPrice: null };
+        }
+      }, [newAsset]);
+
+      const portfolioStats = useMemo(() => {
+        let totalInvested = 0; let totalCurrent = 0; let totalYieldEarned = 0; const categoryTotals = {};
+        const enrichedHoldings = holdings.map(asset => {
+          let currentVal = asset.current; 
+          totalInvested += asset.invested; totalCurrent += currentVal; totalYieldEarned += (asset.yieldEarned || 0);
+          if (!categoryTotals[asset.category]) categoryTotals[asset.category] = { invested: 0, current: 0, yield: 0 };
+          categoryTotals[asset.category].invested += asset.invested; 
+          categoryTotals[asset.category].current += currentVal;
+          categoryTotals[asset.category].yield += (asset.yieldEarned || 0);
+          return { ...asset, computedCurrent: currentVal };
+        });
+        const capitalGain = totalCurrent - totalInvested;
+        const totalReturn = capitalGain + totalYieldEarned;
+        const allocation = Object.keys(categoryTotals).map(catKey => {
+          const catInvested = categoryTotals[catKey].invested;
+          const catCurrent = categoryTotals[catKey].current;
+          const catYield = categoryTotals[catKey].yield;
+          const catTotalReturn = (catCurrent - catInvested) + catYield;
+          const catReturnPercent = catInvested > 0 ? (catTotalReturn / catInvested) * 100 : 0;
+          return { key: catKey, ...ASSET_CATEGORIES[catKey], invested: catInvested, current: catCurrent, totalReturn: catTotalReturn, returnPercent: catReturnPercent, percentage: totalCurrent > 0 ? (catCurrent / totalCurrent) * 100 : 0 };
+        }).sort((a, b) => b.current - a.current);
+
+        return { totalInvested, totalCurrent, capitalGain, totalYieldEarned, totalReturn, allocation, enrichedHoldings };
+      }, [holdings]);
+
+      const groupedHoldingsByAsset = useMemo(() => {
+        const groups = {};
+        portfolioStats.enrichedHoldings.forEach(asset => {
+          if (!groups[asset.category]) groups[asset.category] = {};
+          if (!groups[asset.category][asset.name]) groups[asset.category][asset.name] = { name: asset.name, category: asset.category, totalQuantity: 0, totalInvested: 0, totalCurrent: 0, totalYield: 0, lots: [] };
+          const group = groups[asset.category][asset.name];
+          group.totalQuantity += (asset.quantity || 0); group.totalInvested += asset.invested;
+          group.totalCurrent += asset.computedCurrent; group.totalYield += (asset.yieldEarned || 0);
+          group.lots.push(asset);
+        });
+        Object.values(groups).forEach(cat => { Object.values(cat).forEach(assetGrp => { assetGrp.lots.sort((a, b) => new Date(b.date) - new Date(a.date)); }); });
+        return groups;
+      }, [portfolioStats.enrichedHoldings]);
+
+      const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested;
+      const totalNetWorth = portfolioStats.totalCurrent + availableCash - liabilityStats.totalRemaining;
+
+      // --- CLEAN UI RESET HANDLERS ---
+      const handleOpenDebtModal = () => {
+        setEditingLiabilityId(null);
+        setNewLiability({ category: 'PERSONAL_LOAN', name: '', totalAmount: '', paidAmount: '', monthlyEmi: '', date: getTodayDate() });
+        setIsLiabilityModalOpen(true);
+      };
+
+      const handleOpenAssetModal = () => {
+        setEditingAssetId(null);
+        setNewAsset({ category: 'IN_STOCK', name: '', invested: '', buyPrice: '', currentPrice: '', manualCurrentValue: '', date: getTodayDate() });
+        setIsAddModalOpen(true);
+      };
+
+      const handleOpenTransactionModal = () => {
+        setEditingTransactionId(null);
+        setNewTransaction({ type: 'INCOME', source: incomeSources[0], customSource: '', amount: '', date: getTodayDate() });
+        setIsTransactionModalOpen(true);
+      };
+
+      // --- CRUD ---
+      const handleSaveAsset = async () => {
+        try {
+          if (!user) return alert("Please log in.");
+          if (!newAsset.name || !newAsset.invested) return alert("Please fill out Name and Invested fields.");
+          const assetId = editingAssetId || Date.now().toString();
+          const assetData = { id: assetId, category: newAsset.category, name: newAsset.name, invested: parseFloat(newAsset.invested), current: formCalculations.currentValue, currentPrice: parseFloat(newAsset.currentPrice) || 0, quantity: formCalculations.quantity, buyPrice: parseFloat(newAsset.buyPrice) || 0, date: newAsset.date, yieldEarned: editingAssetId ? (holdings.find(h=>h.id===editingAssetId)?.yieldEarned || 0) : 0 };
+          await getUserPath(user.uid, 'holdings').doc(assetId).set(assetData);
+          setIsAddModalOpen(false);
+        } catch (error) { alert(error.message); }
+      };
+
+      const handleSaveLiability = async () => {
+        try {
+          if (!user) return alert("Please log in.");
+          if (!newLiability.name || !newLiability.totalAmount) return alert("Please fill out Name and Borrowed fields.");
+          const libId = editingLiabilityId || Date.now().toString();
+          const liabilityData = { id: libId, category: newLiability.category, name: newLiability.name, totalAmount: parseFloat(newLiability.totalAmount), paidAmount: parseFloat(newLiability.paidAmount) || 0, monthlyEmi: parseFloat(newLiability.monthlyEmi) || 0, date: newLiability.date };
+          await getUserPath(user.uid, 'liabilities').doc(libId).set(liabilityData);
+          setIsLiabilityModalOpen(false);
+        } catch (error) { alert(error.message); }
+      };
+
+      const handleSaveTransaction = async () => {
+        try {
+          if (!user) return alert("Please log in.");
+          if (!newTransaction.amount) return alert("Please enter Amount.");
+          let finalSource = newTransaction.source;
+          if (newTransaction.type === 'INCOME' && newTransaction.source === 'NEW_SOURCE') {
+            finalSource = newTransaction.customSource;
+            if(!finalSource) return alert("Enter source name");
+            if (!incomeSources.includes(finalSource)) await db.collection('artifacts').doc(PROJECT_APP_ID).collection('users').doc(user.uid).collection('settings').doc('profile').set({ incomeSources: [...incomeSources, finalSource] }, { merge: true });
+          } else if (newTransaction.type === 'WITHDRAWAL') finalSource = newTransaction.customSource || 'Expense';
+
+          const txId = editingTransactionId || Date.now().toString();
+          await getUserPath(user.uid, 'transactions').doc(txId).set({ id: txId, type: newTransaction.type, source: finalSource, amount: parseFloat(newTransaction.amount), date: newTransaction.date });
+          setIsTransactionModalOpen(false);
+        } catch (error) { alert(error.message); }
+      };
+
+      const handleLogYield = async () => {
+        try {
+          if (!user || !yieldData.amount) return alert("Please enter an amount.");
+          const amt = parseFloat(yieldData.amount);
+          const assetToUpdate = holdings.find(a => a.id === yieldData.assetId);
+          await getUserPath(user.uid, 'holdings').doc(yieldData.assetId.toString()).set({ ...assetToUpdate, yieldEarned: (assetToUpdate.yieldEarned || 0) + amt });
+          await getUserPath(user.uid, 'transactions').doc(Date.now().toString()).set({ id: Date.now().toString(), type: 'INCOME', source: `Yield: ${yieldData.assetName}`, amount: amt, date: yieldData.date });
+          setIsYieldModalOpen(false);
+        } catch (error) { alert(error.message); }
+      };
+
+      const handlePayEmi = async () => {
+        try {
+          if (!user || !emiData.amount) return alert("Please enter an amount.");
+          const amt = parseFloat(emiData.amount);
+          const libToUpdate = liabilities.find(l => l.id === emiData.liabilityId);
+          await getUserPath(user.uid, 'liabilities').doc(emiData.liabilityId.toString()).set({ ...libToUpdate, paidAmount: libToUpdate.paidAmount + amt });
+          await getUserPath(user.uid, 'transactions').doc(Date.now().toString()).set({ id: Date.now().toString(), type: 'WITHDRAWAL', source: `EMI Paid: ${emiData.name}`, amount: amt, date: emiData.date });
+          setIsPayEmiModalOpen(false);
+        } catch (error) { alert(error.message); }
+      };
+
+      const executeSell = async (cashOut) => {
+        try {
+          const asset = sellModalData;
+          const realizedPnl = asset.computedCurrent - asset.invested;
+          if (realizedPnl !== 0) await getUserPath(user.uid, 'transactions').doc(Date.now().toString()).set({ id: Date.now().toString(), type: 'INCOME', source: `Sale PnL: ${asset.name}`, amount: realizedPnl, date: getTodayDate() });
+          if (cashOut) await getUserPath(user.uid, 'transactions').doc((Date.now() + 1).toString()).set({ id: (Date.now() + 1).toString(), type: 'WITHDRAWAL', source: `Cashed Out: ${asset.name}`, amount: asset.computedCurrent, date: getTodayDate() });
+          await getUserPath(user.uid, 'holdings').doc(asset.id.toString()).delete();
+          setSellModalData(null);
+        } catch (error) { alert(error.message); }
+      };
+
+      const deleteTransaction = async (id) => await getUserPath(user.uid, 'transactions').doc(id.toString()).delete();
+      const deleteLiability = async (id) => await getUserPath(user.uid, 'liabilities').doc(id.toString()).delete();
+      const deleteAsset = async (id) => await getUserPath(user.uid, 'holdings').doc(id.toString()).delete();
+      
+      const toggleCategory = (categoryKey) => setExpandedCategories(prev => ({ ...prev, [categoryKey]: !prev[categoryKey] }));
+      const toggleAssetExpansion = (assetKey) => setExpandedAssets(prev => ({ ...prev, [assetKey]: !prev[assetKey] }));
+
+      const handleAddMore = (category, name) => { setNewAsset({ category, name, invested: '', buyPrice: '', currentPrice: '', manualCurrentValue: '', date: getTodayDate() }); setEditingAssetId(null); setIsAddModalOpen(true); };
+      const openEditAsset = (asset) => { setEditingAssetId(asset.id); setNewAsset({ category: asset.category, name: asset.name, invested: asset.invested.toString(), buyPrice: asset.buyPrice ? asset.buyPrice.toString() : '', currentPrice: asset.currentPrice ? asset.currentPrice.toString() : '', manualCurrentValue: asset.current.toString(), date: asset.date || getTodayDate() }); setIsAddModalOpen(true); };
+      const openEditLiability = (liability) => { setEditingLiabilityId(liability.id); setNewLiability({ category: liability.category, name: liability.name, totalAmount: liability.totalAmount.toString(), paidAmount: liability.paidAmount.toString(), monthlyEmi: liability.monthlyEmi.toString(), date: liability.date || getTodayDate() }); setIsLiabilityModalOpen(true); };
+      const openEditTransaction = (tx) => { setEditingTransactionId(tx.id); setNewTransaction({ type: tx.type, source: tx.source, customSource: tx.type === 'WITHDRAWAL' ? tx.source : '', amount: tx.amount.toString(), date: tx.date || getTodayDate() }); setIsTransactionModalOpen(true); };
+
+      const formatINR = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
+      const formatPercent = (val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+      const formatDate = (dateString) => {
+        if (!dateString) return '';
+        const options = { day: 'numeric', month: 'short', year: 'numeric' };
+        return new Date(dateString).toLocaleDateString('en-GB', options);
+      };
+
+      // --- RENDERS ---
+      if (authLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Icon name="fa-spinner fa-spin" size={48} className="text-emerald-500" /></div>;
+
+      if (!user) {
+        return (
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl w-full max-w-md shadow-2xl flex flex-col items-center">
+              <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-2xl mb-6 border border-slate-800 flex items-center justify-center bg-[#0A2E13]"><CustomLogo className="w-full h-full" /></div>
+              <h1 className="text-2xl font-black text-white mb-2 tracking-tight">Wealth Manager</h1>
+              <p className="text-slate-400 text-sm mb-6 text-center">Track your assets, liabilities, and net worth effortlessly.</p>
+              <div className="flex w-full bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
+                <button onClick={() => { setAuthMode('signup'); setAuthError(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${authMode === 'signup' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Sign Up</button>
+                <button onClick={() => { setAuthMode('login'); setAuthError(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${authMode === 'login' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}>Log In</button>
+              </div>
+              <button onClick={handleGoogleAuth} className="w-full flex items-center justify-center py-3.5 bg-white text-slate-900 font-bold rounded-xl mb-6 transition-colors shadow-lg"><GoogleIcon /> Continue with Google</button>
+              <div className="w-full flex items-center mb-6"><div className="h-px bg-slate-800 flex-1"></div><span className="px-4 text-xs text-slate-500 font-medium uppercase tracking-wider">OR EMAIL</span><div className="h-px bg-slate-800 flex-1"></div></div>
+              <form onSubmit={handleAuthSubmit} className="w-full space-y-4">
+                {authError && <div className="p-3 bg-rose-500/10 text-rose-400 text-xs font-bold rounded-xl text-center">{authError}</div>}
+                {authMode === 'signup' && (
+                  <div className="relative">
+                    <Icon name="fa-user" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input type="text" required placeholder="Full Name" value={authForm.name} onChange={(e) => setAuthForm({...authForm, name: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-emerald-500 transition-colors placeholder:text-slate-600"/>
+                  </div>
+                )}
+                <div className="relative">
+                  <Icon name="fa-envelope" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input type="email" required placeholder="Email Address" value={authForm.email} onChange={(e) => setAuthForm({...authForm, email: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-emerald-500 transition-colors placeholder:text-slate-600"/>
+                </div>
+                <div className="relative">
+                  <Icon name="fa-lock" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input type="password" required placeholder="Password" value={authForm.password} onChange={(e) => setAuthForm({...authForm, password: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-emerald-500 transition-colors placeholder:text-slate-600"/>
+                </div>
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg flex justify-center items-center mt-2">
+                  {authMode === 'signup' ? 'Create Account' : 'Log In'} <Icon name="fa-arrow-right" size={18} className="ml-2" />
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      if (isAppLocked && customPassword) {
+        return (
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl w-full max-w-sm shadow-2xl text-center">
+              <div className="w-24 h-24 rounded-2xl overflow-hidden shadow-2xl mx-auto mb-6 border border-slate-800 flex items-center justify-center bg-[#0A2E13]"><CustomLogo className="w-full h-full" /></div>
+              <h1 className="text-2xl font-black text-white mb-2 tracking-tight">Wealth Manager</h1>
+              <p className="text-slate-400 text-sm mb-8">Enter your PIN to access your data.</p>
+              <form onSubmit={handleAppLogin}>
+                <input type="password" inputMode="numeric" value={passwordInput} onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(false); }} className={`w-full bg-slate-950 border ${passwordError ? 'border-rose-500 text-rose-400' : 'border-slate-700 text-white focus:border-emerald-500'} rounded-2xl px-4 py-4 text-center text-3xl tracking-[0.5em] focus:outline-none mb-4 transition-colors`} placeholder="••••" autoFocus />
+                {passwordError && <p className="text-rose-400 text-xs font-semibold mb-4 animate-pulse">Incorrect PIN.</p>}
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl flex justify-center items-center"><Icon name="fa-unlock" size={18} className="mr-2" /> Unlock Portfolio</button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-200 font-sans pb-20 overflow-x-hidden">
+          <header className="border-b border-slate-800 bg-slate-900/90 sticky top-0 z-40 backdrop-blur-md">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
+              <div className="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-start">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl overflow-hidden shrink-0 border border-slate-700 bg-[#0A2E13]"><CustomLogo className="w-full h-full" /></div>
+                  <div><h1 className="text-lg md:text-xl font-bold text-white">Wealth Manager</h1><p className="text-[10px] md:text-xs text-slate-400">Cloud Synced & Secured</p></div>
+                </div>
+                <div className="flex md:hidden items-center space-x-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-xs" title={user.displayName || user.email}>{(user.displayName || user.email || 'U').charAt(0).toUpperCase()}</div>
+                  <button onClick={handleLogout} className="p-2 bg-slate-800 rounded-lg text-rose-400"><Icon name="fa-right-from-bracket" size={16} /></button>
+                </div>
+              </div>
+              <div className="flex space-x-2 items-center w-full md:w-auto overflow-x-auto pb-1 md:pb-0 custom-scrollbar">
+                <button onClick={handleOpenDebtModal} className="flex items-center space-x-2 bg-rose-600 hover:bg-rose-500 text-white px-3 py-2 rounded-lg text-sm font-medium shrink-0"><Icon name="fa-credit-card" size={16} /> <span>Debt</span></button>
+                <button onClick={handleOpenTransactionModal} className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-medium shrink-0"><Icon name="fa-money-bill-wave" size={16} /> <span>Log</span></button>
+                <button onClick={handleOpenAssetModal} className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-sm font-medium shrink-0"><Icon name="fa-plus" size={16} /> <span>Asset</span></button>
+                
+                <div className="hidden md:block h-6 w-px bg-slate-700 mx-1 shrink-0"></div>
+                <div className="hidden md:flex items-center space-x-2 bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700"><Icon name="fa-user" size={14} className="text-slate-400" /><span className="text-xs font-bold text-slate-300 truncate max-w-[120px]">{user.displayName || user.email || 'Investor'}</span></div>
+                <button onClick={() => setIsSettingsModalOpen(true)} className="hidden md:flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-sm font-medium shrink-0"><Icon name="fa-key" size={16} /></button>
+                <button onClick={() => { setIsAppLocked(true); setIsSettingsModalOpen(false); }} className="hidden md:flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-rose-400 px-3 py-2 rounded-lg text-sm font-medium shrink-0"><Icon name="fa-lock" size={16} /></button>
+                <button onClick={handleLogout} className="hidden md:flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-rose-400 px-3 py-2 rounded-lg text-sm font-medium shrink-0"><Icon name="fa-right-from-bracket" size={16} /></button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6 md:space-y-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-5 md:p-6 shadow-xl relative xl:col-span-1 sm:col-span-2">
+                <div className="relative z-10">
+                  <div className="flex items-center text-slate-300 mb-2"><Icon name="fa-wallet" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">True Net Worth</h2></div>
+                  <p className={`text-2xl md:text-3xl font-black ${totalNetWorth >= 0 ? 'text-white' : 'text-rose-400'}`}>{formatINR(totalNetWorth)}</p>
+                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">(Assets + Cash) - Debt</p>
+                </div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6">
+                <div className="flex items-center text-emerald-400 mb-2"><Icon name="fa-chart-pie" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">Invested Assets</h2></div>
+                <p className="text-xl font-bold text-white">{formatINR(portfolioStats.totalCurrent)}</p>
+                <p className="text-xs text-slate-500 mt-1">Cost: {formatINR(portfolioStats.totalInvested)}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6">
+                <div className="flex items-center text-blue-400 mb-2"><Icon name="fa-money-bill-wave" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">Available Cash</h2></div>
+                <p className={`text-xl font-bold ${availableCash >= 0 ? 'text-white' : 'text-rose-400'}`}>{formatINR(availableCash)}</p>
+                <p className="text-xs text-slate-500 mt-1">Ready to invest or pay EMI</p>
+              </div>
+              <div className="bg-slate-900 border border-rose-900/50 rounded-2xl p-5 md:p-6">
+                 <div className="flex items-center text-rose-400 mb-2"><Icon name="fa-credit-card" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">Active Debt</h2></div>
+                <p className="text-xl font-bold text-rose-400">{formatINR(liabilityStats.totalRemaining)}</p>
+                <p className="text-xs text-slate-500 mt-1">From {formatINR(liabilityStats.totalBorrowed)} borrowed</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6 sm:col-span-2 lg:col-span-4 xl:col-span-1">
+                <div className="flex items-center text-slate-400 mb-2"><Icon name="fa-chart-line" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">Total Return</h2></div>
+                <p className={`text-xl font-bold ${portfolioStats.totalReturn >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {portfolioStats.totalReturn > 0 ? '+' : ''}{formatINR(portfolioStats.totalReturn)}
+                </p>
+                <p className="text-xs text-slate-500 mt-1 flex space-x-2">
+                  <span className={portfolioStats.capitalGain >= 0 ? "text-emerald-500/80" : "text-rose-500/80"}>Cap: {formatINR(portfolioStats.capitalGain)}</span>
+                  <span className="text-indigo-400/80">Yld: {formatINR(portfolioStats.totalYieldEarned)}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* DEBTS */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mt-6 md:mt-8 mb-4 px-2 border-b border-slate-800 pb-2 gap-2">
+                <div className="flex items-center">
+                  <h2 className="text-lg md:text-xl font-bold text-rose-400 flex items-center"><Icon name="fa-credit-card" size={20} className="mr-2" /> Liabilities & Debt</h2>
+                  {liabilities.length > 0 && <button onClick={handleOpenDebtModal} className="ml-3 p-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors border border-rose-500/20 shadow-sm"><Icon name="fa-plus" size={14} /></button>}
+                </div>
+                <div className="text-left sm:text-right"><span className="text-xs md:text-sm font-medium text-slate-500">Monthly EMI Load: <strong className="text-white">{formatINR(liabilityStats.totalMonthlyEmi)}</strong></span></div>
+              </div>
+
+              {liabilities.length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 border-dashed rounded-2xl p-6 md:p-8 text-center">
+                  <Icon name="fa-shield-halved" size={36} className="mx-auto text-slate-700 mb-3" />
+                  <h3 className="text-lg font-bold text-slate-300 mb-1">Debt Free!</h3>
+                  <p className="text-slate-500 text-sm mb-4">You have no active loans or credit card debt tracked.</p>
+                  <button onClick={handleOpenDebtModal} className="inline-flex items-center space-x-2 bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-xl font-bold transition-colors shadow-lg text-sm"><Icon name="fa-plus" size={16} /><span>Add Your First Debt</span></button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {liabilities.map(lib => {
+                    const catData = LIABILITY_CATEGORIES[lib.category];
+                    const remaining = lib.totalAmount - lib.paidAmount;
+                    const percentPaid = lib.totalAmount > 0 ? (lib.paidAmount / lib.totalAmount) * 100 : 0;
+                    return (
+                      <div key={lib.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-5 shadow-sm flex flex-col">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="p-2 rounded-lg shrink-0" style={{ backgroundColor: `${catData.color}15`, color: catData.color }}><Icon name={catData.icon} size={18} /></div>
+                            <div><h3 className="font-bold text-slate-100 text-sm md:text-base">{lib.name}</h3><p className="text-[10px] text-slate-500 uppercase">{catData.name} • {formatDate(lib.date)}</p></div>
+                          </div>
+                          <div className="flex space-x-1 opacity-100 sm:opacity-50 hover:opacity-100 shrink-0">
+                            <button onClick={() => openEditLiability(lib)} className="p-1.5 bg-slate-800 sm:bg-transparent hover:bg-slate-700 rounded text-slate-400 hover:text-blue-400"><Icon name="fa-pen-to-square" size={12}/></button>
+                            <button onClick={() => deleteLiability(lib.id)} className="p-1.5 bg-slate-800 sm:bg-transparent hover:bg-slate-700 rounded text-slate-400 hover:text-rose-400"><Icon name="fa-trash-can" size={12}/></button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 md:gap-2 mb-4 text-center bg-slate-950/50 p-2 md:p-3 rounded-xl border border-slate-800/50">
+                          <div><p className="text-[9px] md:text-[10px] text-slate-500 uppercase font-semibold">Borrowed</p><p className="text-xs md:text-sm font-bold text-slate-300">{formatINR(lib.totalAmount)}</p></div>
+                          <div className="border-x border-slate-800"><p className="text-[9px] md:text-[10px] text-slate-500 uppercase font-semibold">Remaining</p><p className="text-xs md:text-sm font-bold text-rose-400">{formatINR(remaining)}</p></div>
+                          <div><p className="text-[9px] md:text-[10px] text-slate-500 uppercase font-semibold">Monthly</p><p className="text-xs md:text-sm font-bold text-slate-300">{formatINR(lib.monthlyEmi)}</p></div>
+                        </div>
+                        <div className="mt-auto">
+                          <div className="flex justify-between text-xs mb-1.5"><span className="text-emerald-500 font-bold">{percentPaid.toFixed(1)}% Paid</span><span className="text-slate-500">({formatINR(lib.paidAmount)})</span></div>
+                          <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden mb-4 border border-slate-700"><div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${percentPaid}%` }}></div></div>
+                          <button onClick={() => { setEmiData({ liabilityId: lib.id, name: lib.name, amount: lib.monthlyEmi.toString(), date: getTodayDate() }); setIsPayEmiModalOpen(true); }} className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-sm font-bold transition-colors flex items-center justify-center"><Icon name="fa-arrow-up-right-from-square" size={16} className="mr-1.5" /> Log EMI Payment</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* TRANSACTIONS & ALLOCATION */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shadow-sm">
+                <div className="flex items-center text-slate-100 mb-4 md:mb-6 border-b border-slate-800 pb-3 md:pb-4"><Icon name="fa-chart-pie" size={18} className="mr-2 text-emerald-400" /><h2 className="text-base md:text-lg font-bold">Invested Asset Allocation</h2></div>
+                {portfolioStats.allocation.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-slate-500"><Icon name="fa-chart-pie" size={40} className="mb-3 opacity-20" /><p className="text-sm">Chart will appear once you add assets</p></div>
+                ) : (
+                  <>
+                    <div className="h-5 md:h-6 w-full flex rounded-full overflow-hidden mb-4 md:mb-6 bg-slate-800 border border-slate-700 shadow-inner">
+                      {portfolioStats.allocation.map(alloc => (<div key={alloc.key} style={{ width: `${alloc.percentage}%`, backgroundColor: alloc.color }} className="h-full border-r border-slate-900 last:border-0" title={`${alloc.name}: ${alloc.percentage.toFixed(1)}%`} />))}
+                    </div>
+                    <div className="space-y-2 md:space-y-3">
+                      {portfolioStats.allocation.map(alloc => (
+                        <div key={alloc.key} className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-950/50 p-3 rounded-xl border border-slate-800/50 gap-3 sm:gap-0">
+                          <div className="flex items-center w-full sm:w-1/3">
+                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl mr-3 flex items-center justify-center shrink-0" style={{ backgroundColor: `${alloc.color}15`, color: alloc.color, border: `1px solid ${alloc.color}30` }}><Icon name={alloc.icon} size={16} /></div>
+                            <div><span className="font-bold text-slate-200 text-sm md:text-base">{alloc.name}</span><div className="text-[9px] md:text-[10px] font-bold uppercase mt-0.5" style={{ color: alloc.color }}>{alloc.percentage.toFixed(1)}% Allocated</div></div>
+                          </div>
+                          <div className="flex justify-between w-full sm:w-5/12 px-0 sm:px-2 md:px-4">
+                            <div><p className="text-[9px] md:text-[10px] text-slate-500 uppercase font-bold">Invested</p><p className="text-xs md:text-sm font-medium text-slate-300">{formatINR(alloc.invested)}</p></div>
+                            <div className="text-right sm:text-left"><p className="text-[9px] md:text-[10px] text-slate-500 uppercase font-bold">Current</p><p className="text-xs md:text-sm font-bold text-white">{formatINR(alloc.current)}</p></div>
+                          </div>
+                          <div className="w-full sm:w-3/12 text-right flex sm:block justify-between items-center border-t sm:border-t-0 border-slate-800/50 pt-2 sm:pt-0 mt-1 sm:mt-0">
+                            <p className="text-[9px] md:text-[10px] text-slate-500 uppercase font-bold sm:hidden">Total Return</p>
+                            <div><p className={`text-xs md:text-sm font-bold ${alloc.totalReturn >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{alloc.totalReturn >= 0 ? '+' : ''}{formatINR(alloc.totalReturn)}</p><p className={`text-[9px] md:text-[10px] font-bold ${alloc.returnPercent >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{formatPercent(alloc.returnPercent)}</p></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shadow-sm h-[400px] md:h-auto md:max-h-[600px] flex flex-col">
+                <div className="flex items-center justify-between mb-3 md:mb-4 border-b border-slate-800 pb-3 md:pb-4 shrink-0">
+                  <div className="flex items-center text-blue-400"><Icon name="fa-money-bill-wave" size={18} className="mr-2" /><h2 className="text-base md:text-lg font-bold text-white">Transaction Logs</h2></div>
+                </div>
+                <div className="space-y-2 md:space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-grow">
+                  {transactions.length === 0 ? (
+                    <div className="text-center py-6"><p className="text-sm text-slate-500">No transactions logged yet.</p></div>
+                  ) : (
+                    [...transactions].sort((a,b) => new Date(b.date) - new Date(a.date)).map((tx) => (
+                      <div key={tx.id} className="flex justify-between items-center bg-slate-950/50 p-2 md:p-3 rounded-lg border border-slate-800/50 group">
+                        <div className="flex items-center space-x-2 md:space-x-3 truncate mr-2">
+                          <div className={`w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'INCOME' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{tx.type === 'INCOME' ? <Icon name="fa-arrow-down" size={12} /> : <Icon name="fa-right-from-bracket" size={12} />}</div>
+                          <div className="flex flex-col truncate"><span className="text-xs md:text-sm font-medium text-slate-300 truncate" title={tx.source}>{tx.source}</span><span className="text-[9px] md:text-[10px] text-slate-500 flex items-center mt-0.5"><Icon name="fa-calendar-days" size={9} className="mr-1"/> {formatDate(tx.date)}</span></div>
+                        </div>
+                        <div className="flex flex-col items-end shrink-0">
+                          <span className={`text-xs md:text-sm font-bold ${tx.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'}`}>{tx.type === 'INCOME' ? '+' : '-'}{formatINR(tx.amount)}</span>
+                          <div className="flex space-x-1.5 mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => openEditTransaction(tx)} className="p-1 bg-slate-800 md:bg-transparent rounded text-slate-400 hover:text-blue-400"><Icon name="fa-pen-to-square" size={10} /></button>
+                            <button onClick={() => deleteTransaction(tx.id)} className="p-1 bg-slate-800 md:bg-transparent rounded text-slate-400 hover:text-rose-400"><Icon name="fa-trash-can" size={10} /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button onClick={handleOpenTransactionModal} className="w-full mt-3 md:mt-4 py-2.5 border border-dashed border-slate-700 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-slate-800/50 flex justify-center items-center shrink-0"><Icon name="fa-circle-plus" size={14} className="mr-2" /> Log New Transaction</button>
+              </div>
+            </div>
+
+            {/* ASSETS */}
+            <div className="space-y-4 pt-4 border-t border-slate-800/50">
+              <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 md:mt-8 mb-4 px-2 flex items-center"><Icon name="fa-chart-line" size={20} className="mr-2" /> Investment Details</h2>
+              
+              {Object.keys(groupedHoldingsByAsset).length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 border-dashed rounded-2xl p-8 md:p-12 text-center">
+                  <Icon name="fa-briefcase" size={36} className="mx-auto text-slate-700 mb-3" />
+                  <h3 className="text-base md:text-lg font-bold text-slate-300 mb-1">Your portfolio is empty</h3>
+                  <p className="text-slate-500 text-sm mb-6">Start by logging your income and adding your first asset.</p>
+                  <button onClick={handleOpenAssetModal} className="inline-flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm"><Icon name="fa-plus" size={16} /><span>Add Your First Asset</span></button>
+                </div>
+              ) : (
+                portfolioStats.allocation.map((categoryData) => {
+                  const categoryKey = categoryData.key;
+                  const assetsInCat = groupedHoldingsByAsset[categoryKey];
+                  if (!assetsInCat || Object.keys(assetsInCat).length === 0) return null;
+                  const isCatExpanded = expandedCategories[categoryKey];
+
+                  return (
+                    <div key={categoryKey} className="bg-slate-900 border border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                      <div className="p-3 md:p-5 flex justify-between items-center cursor-pointer hover:bg-slate-800/50" onClick={() => toggleCategory(categoryKey)}>
+                        <div className="flex items-center space-x-3 md:space-x-4 w-1/2">
+                          <div className="p-2 rounded-lg shrink-0" style={{ backgroundColor: `${categoryData.color}15`, color: categoryData.color }}><Icon name={categoryData.icon} size={18} /></div>
+                          <div className="truncate"><h3 className="font-bold text-slate-100 text-sm md:text-base truncate">{categoryData.name}</h3><p className="text-[10px] md:text-xs text-slate-500">{Object.keys(assetsInCat).length} Asset(s)</p></div>
+                        </div>
+                        <div className="flex items-center justify-end space-x-3 md:space-x-6 w-1/2">
+                          <div className="text-right">
+                            <p className="font-bold text-white text-sm md:text-base">{formatINR(categoryData.current)}</p>
+                            <p className={`text-[10px] md:text-xs font-medium ${categoryData.current - categoryData.invested > 0 ? 'text-emerald-400' : categoryData.current - categoryData.invested < 0 ? 'text-rose-400' : 'text-slate-500'}`}>{categoryData.current - categoryData.invested > 0 ? '+' : ''}{formatINR(categoryData.current - categoryData.invested)} Cap</p>
+                          </div>
+                          <div className="text-slate-500 shrink-0"><Icon name={isCatExpanded ? "fa-chevron-up" : "fa-chevron-down"} size={16} /></div>
+                        </div>
+                      </div>
+
+                      {isCatExpanded && (
+                        <div className="border-t border-slate-800 bg-slate-950/30">
+                          <div className="overflow-x-auto custom-scrollbar pb-2">
+                            <table className="w-full text-left border-collapse min-w-[700px] md:min-w-[800px]">
+                              <thead>
+                                <tr className="text-slate-500 text-[10px] md:text-xs uppercase tracking-wider border-b border-slate-800/50">
+                                  <th className="p-3 md:p-4 font-medium pl-4 md:pl-6">Asset Name</th>
+                                  {categoryData.hasUnits && <th className="p-3 md:p-4 font-medium">Total Qty / Avg Price</th>}
+                                  <th className="p-3 md:p-4 font-medium text-right">Total Invested</th>
+                                  <th className="p-3 md:p-4 font-medium text-right">Current Value</th>
+                                  <th className="p-3 md:p-4 font-medium text-right">Total Return</th>
+                                  <th className="p-3 md:p-4 font-medium text-center pr-4 md:pr-6">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-800/50">
+                                {Object.values(assetsInCat).map(assetGrp => {
+                                  const capGain = assetGrp.totalCurrent - assetGrp.totalInvested;
+                                  const totalReturn = capGain + assetGrp.totalYield;
+                                  const returnPercent = (assetGrp.totalInvested > 0) ? (totalReturn / assetGrp.totalInvested) * 100 : 0;
+                                  const assetKey = `${categoryKey}-${assetGrp.name}`;
+                                  const isAssetExp = expandedAssets[assetKey];
+                                  const avgBuyPrice = categoryData.hasUnits && assetGrp.totalQuantity > 0 ? assetGrp.totalInvested / assetGrp.totalQuantity : 0;
+
+                                  return (
+                                    <Fragment key={assetGrp.name}>
+                                      <tr className="hover:bg-slate-800/30 bg-slate-900/40">
+                                        <td className="p-3 md:p-4 pl-4 md:pl-6">
+                                          <div className="flex items-center space-x-2">
+                                            <p className="font-bold text-slate-100 text-sm md:text-base">{assetGrp.name}</p>
+                                            {assetGrp.lots.length > 1 && (
+                                              <button onClick={() => toggleAssetExpansion(assetKey)} className="text-[9px] md:text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-1.5 md:px-2 py-0.5 rounded-full flex items-center">
+                                                <Icon name="fa-layer-group" size={10} className="mr-1"/> {assetGrp.lots.length} Buys <Icon name={isAssetExp ? "fa-chevron-up" : "fa-chevron-down"} size={10} className="ml-1"/>
+                                              </button>
+                                            )}
+                                          </div>
+                                          {assetGrp.totalYield > 0 && <span className="inline-block mt-1 bg-indigo-500/10 text-indigo-400 text-[9px] md:text-[10px] px-1.5 py-0.5 rounded font-bold uppercase border border-indigo-500/20">Yield: {formatINR(assetGrp.totalYield)}</span>}
+                                        </td>
+                                        {categoryData.hasUnits && (
+                                          <td className="p-3 md:p-4">
+                                            <p className="font-bold text-emerald-400 text-sm">{assetGrp.totalQuantity.toLocaleString(undefined, {maximumFractionDigits: 4})} {categoryData.unitName}</p>
+                                            <p className="text-[10px] md:text-xs text-slate-500">Avg: {formatINR(avgBuyPrice)}</p>
+                                          </td>
+                                        )}
+                                        <td className="p-3 md:p-4 text-right"><p className="text-slate-300 font-medium text-sm">{formatINR(assetGrp.totalInvested)}</p></td>
+                                        <td className="p-3 md:p-4 text-right"><p className="font-bold text-slate-100 text-sm">{formatINR(assetGrp.totalCurrent)}</p></td>
+                                        <td className="p-3 md:p-4 text-right">
+                                          <p className={`text-sm font-semibold ${totalReturn > 0 ? 'text-emerald-400' : totalReturn < 0 ? 'text-rose-400' : 'text-slate-400'}`}>{totalReturn > 0 ? '+' : ''}{formatINR(totalReturn)}</p>
+                                          <p className={`text-[10px] md:text-xs mt-0.5 ${returnPercent > 0 ? 'text-emerald-500' : returnPercent < 0 ? 'text-rose-500' : 'text-slate-500'}`}>{formatPercent(returnPercent)}</p>
+                                        </td>
+                                        <td className="p-3 md:p-4 text-center pr-4 md:pr-6"><button onClick={() => handleAddMore(categoryKey, assetGrp.name)} className="p-1.5 md:p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg flex items-center mx-auto"><Icon name="fa-plus" size={14} /> <span className="text-[10px] md:text-xs font-bold px-1">ADD</span></button></td>
+                                      </tr>
+                                      {(isAssetExp || assetGrp.lots.length === 1) && assetGrp.lots.map((lot) => (
+                                        <tr key={lot.id} className="bg-slate-950/40 hover:bg-slate-900/60 border-l-4 border-l-slate-800">
+                                          <td className="p-2.5 md:p-3 pl-6 md:pl-8 text-xs md:text-sm">
+                                            <span className="text-slate-400 flex items-center"><Icon name="fa-calendar-days" size={10} className="mr-1.5"/> {formatDate(lot.date)}</span>
+                                            {categoryData.hasUnits && lot.currentPrice > 0 && <span className="text-[10px] text-slate-500 block mt-0.5 ml-4">Cur: {formatINR(lot.currentPrice)}</span>}
+                                          </td>
+                                          {categoryData.hasUnits && <td className="p-2.5 md:p-3 text-xs md:text-sm"><p className="text-slate-400">{lot.quantity?.toLocaleString(undefined, {maximumFractionDigits: 4})} @ {formatINR(lot.buyPrice)}</p></td>}
+                                          <td className="p-2.5 md:p-3 text-right text-xs md:text-sm text-slate-400">{formatINR(lot.invested)}</td>
+                                          <td className="p-2.5 md:p-3 text-right text-xs md:text-sm text-slate-400">{formatINR(lot.computedCurrent)}</td>
+                                          <td className="p-2.5 md:p-3 text-right text-xs md:text-sm"><span className={lot.computedCurrent - lot.invested >= 0 ? "text-emerald-500/70" : "text-rose-500/70"}>{lot.computedCurrent - lot.invested >= 0 ? '+' : ''}{formatINR(lot.computedCurrent - lot.invested)}</span></td>
+                                          <td className="p-2.5 md:p-3 text-center pr-4 md:pr-6">
+                                            <div className="flex justify-center items-center space-x-1 md:space-x-1.5 opacity-100 md:opacity-60 group-hover:opacity-100 transition-opacity">
+                                              <button onClick={() => openEditAsset(lot)} className="p-1.5 bg-slate-800 hover:text-blue-400 rounded-lg"><Icon name="fa-pen-to-square" size={12} /></button>
+                                              <button onClick={() => { setYieldData({ assetId: lot.id, assetName: lot.name, amount: '', date: getTodayDate() }); setIsYieldModalOpen(true); }} className="p-1.5 bg-slate-800 hover:text-indigo-400 rounded-lg"><Icon name="fa-piggy-bank" size={12} /></button>
+                                              <button onClick={() => setSellModalData(lot)} className="p-1.5 bg-slate-800 hover:text-rose-400 rounded-lg"><Icon name="fa-right-from-bracket" size={12} /></button>
+                                              <button onClick={() => deleteAsset(lot.id)} className="p-1.5 bg-slate-800 hover:text-rose-400 rounded-lg"><Icon name="fa-trash-can" size={12} /></button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </Fragment>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </main>
+
+          {/* MODALS */}
+          {isSettingsModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800"><h3 className="text-lg font-bold text-white"><Icon name="fa-key" size={18} className="mr-2 text-indigo-400"/> {customPassword ? 'Change PIN' : 'Set PIN'}</h3><button onClick={() => setIsSettingsModalOpen(false)} className="text-slate-400 p-1 bg-slate-800 rounded-full"><Icon name="fa-xmark" size={18} /></button></div>
+                <div className="p-5 space-y-4">
+                  {customPassword && (<div><label className="block text-xs text-slate-400 mb-1.5">Current PIN</label><input type="password" value={passwordChangeData.current} onChange={e => setPasswordChangeData({...passwordChangeData, current: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-center tracking-[0.5em]"/></div>)}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-xs text-slate-400 mb-1.5">New PIN</label><input type="password" value={passwordChangeData.new} onChange={e => setPasswordChangeData({...passwordChangeData, new: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-center tracking-[0.5em]"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Confirm PIN</label><input type="password" value={passwordChangeData.confirm} onChange={e => setPasswordChangeData({...passwordChangeData, confirm: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-center tracking-[0.5em]"/></div>
+                  </div>
+                  <button type="button" onClick={handleSetOrChangePassword} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl">{customPassword ? 'Update PIN' : 'Set PIN & Lock App'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isAddModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh]">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800"><h3 className="text-lg font-bold text-white"><Icon name={editingAssetId ? "fa-pen-to-square" : "fa-chart-line"} size={18} className="mr-2 text-emerald-400"/> {editingAssetId ? 'Edit Asset' : 'Log Purchase'}</h3><button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 p-1 bg-slate-800 rounded-full"><Icon name="fa-xmark" size={18}/></button></div>
+                <div className="p-5 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2"><label className="block text-xs text-slate-400 mb-1.5">Category</label><select value={newAsset.category} onChange={e => setNewAsset({ ...newAsset, category: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white">{Object.entries(ASSET_CATEGORIES).map(([key, data]) => <option key={key} value={key}>{data.name}</option>)}</select></div>
+                    <div className="sm:col-span-2"><label className="block text-xs text-slate-400 mb-1.5">Asset Name</label><input type="text" value={newAsset.name} onChange={e => setNewAsset({...newAsset, name: e.target.value})} placeholder="e.g. Reliance, Gold 10g" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div className="sm:col-span-2"><label className="block text-xs text-slate-400 mb-1.5">Purchase Date</label><input type="date" value={newAsset.date} onChange={e => setNewAsset({...newAsset, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]" /></div>
+                  </div>
+                  {ASSET_CATEGORIES[newAsset.category].hasUnits ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div><label className="block text-xs text-slate-400 mb-1.5">Total Invested (₹)</label><input type="number" step="any" value={newAsset.invested} onChange={e => setNewAsset({...newAsset, invested: e.target.value})} placeholder="e.g. 50000" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                      <div><label className="block text-xs text-slate-400 mb-1.5">Buy Price (₹)</label><input type="number" step="any" value={newAsset.buyPrice} onChange={e => setNewAsset({...newAsset, buyPrice: e.target.value})} placeholder="Price per unit" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                      <div className="sm:col-span-2"><label className="block text-xs text-slate-400 mb-1.5">Current Price (₹) <span className="font-normal opacity-70">(Optional)</span></label><input type="number" step="any" value={newAsset.currentPrice} onChange={e => setNewAsset({...newAsset, currentPrice: e.target.value})} placeholder="Current market price" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div><label className="block text-xs text-slate-400 mb-1.5">Total Invested (₹)</label><input type="number" step="any" value={newAsset.invested} onChange={e => setNewAsset({...newAsset, invested: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                      <div><label className="block text-xs text-slate-400 mb-1.5">Current Value (₹)</label><input type="number" step="any" value={newAsset.manualCurrentValue} onChange={e => setNewAsset({...newAsset, manualCurrentValue: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    </div>
+                  )}
+                  <button type="button" onClick={handleSaveAsset} className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl">{editingAssetId ? 'Save Changes' : 'Save Purchase'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isTransactionModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh]">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800"><h3 className="text-lg font-bold text-white"><Icon name="fa-money-bill-wave" size={18} className="mr-2 text-blue-400"/> Log Transaction</h3><button onClick={() => setIsTransactionModalOpen(false)} className="text-slate-400 p-1 bg-slate-800 rounded-full"><Icon name="fa-xmark" size={18}/></button></div>
+                <div className="p-5 space-y-4">
+                  <div className="flex bg-slate-950 rounded-xl p-1 border border-slate-800">
+                    <button type="button" onClick={() => setNewTransaction({...newTransaction, type: 'INCOME'})} className={`flex-1 py-2 text-sm font-bold rounded-lg ${newTransaction.type === 'INCOME' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500'}`}>Income</button>
+                    <button type="button" onClick={() => setNewTransaction({...newTransaction, type: 'WITHDRAWAL', source: ''})} className={`flex-1 py-2 text-sm font-bold rounded-lg ${newTransaction.type === 'WITHDRAWAL' ? 'bg-rose-500/20 text-rose-400' : 'text-slate-500'}`}>Withdrawal</button>
+                  </div>
+                  {newTransaction.type === 'INCOME' ? (
+                    <><select value={newTransaction.source} onChange={e => setNewTransaction({...newTransaction, source: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white">{incomeSources.map(src => <option key={src} value={src}>{src}</option>)}<option value="NEW_SOURCE">+ Add Custom Source</option></select>
+                    {newTransaction.source === 'NEW_SOURCE' && <input type="text" value={newTransaction.customSource} onChange={e => setNewTransaction({...newTransaction, customSource: e.target.value})} placeholder="Custom Source" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/>}</>
+                  ) : (
+                    <input type="text" value={newTransaction.customSource} onChange={e => setNewTransaction({...newTransaction, customSource: e.target.value})} placeholder="Expense Reason" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <input type="number" step="any" value={newTransaction.amount} onChange={e => setNewTransaction({...newTransaction, amount: e.target.value})} placeholder="Amount" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/>
+                    <input type="date" value={newTransaction.date} onChange={e => setNewTransaction({...newTransaction, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]"/>
+                  </div>
+                  <button type="button" onClick={handleSaveTransaction} className={`w-full text-white font-bold py-3.5 rounded-xl ${newTransaction.type === 'INCOME' ? 'bg-emerald-600' : 'bg-rose-600'}`}>Save Transaction</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isYieldModalOpen && (
+             <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800"><h3 className="text-lg font-bold text-white"><Icon name="fa-piggy-bank" size={18} className="mr-2 text-indigo-400"/> Log Yield</h3><button onClick={() => setIsYieldModalOpen(false)} className="text-slate-400 p-1 bg-slate-800 rounded-full"><Icon name="fa-xmark" size={18}/></button></div>
+                <div className="p-5 space-y-4">
+                  <div className="bg-indigo-950/30 text-indigo-200 text-center p-4 rounded-xl text-sm">Income for: <strong className="text-indigo-400 text-lg block">{yieldData.assetName}</strong></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <input type="number" step="any" value={yieldData.amount} onChange={e => setYieldData({...yieldData, amount: e.target.value})} placeholder="Amount" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/>
+                    <input type="date" value={yieldData.date} onChange={e => setYieldData({...yieldData, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]" />
+                  </div>
+                  <button type="button" onClick={handleLogYield} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl">Save</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* LIABILITY MODAL */}
+          {isLiabilityModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800"><h3 className="text-lg font-bold text-white"><Icon name="fa-credit-card" size={18} className="mr-2 text-rose-400"/> {editingLiabilityId ? 'Edit Liability' : 'Add New Debt'}</h3><button onClick={() => setIsLiabilityModalOpen(false)} className="text-slate-400 p-1 bg-slate-800 rounded-full"><Icon name="fa-xmark" size={18}/></button></div>
+                <div className="p-5 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-slate-400 mb-1.5">Debt Category</label>
+                      <select value={newLiability.category} onChange={e => setNewLiability({...newLiability, category: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white">
+                        {Object.entries(LIABILITY_CATEGORIES).map(([key, data]) => <option key={key} value={key}>{data.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2"><label className="block text-xs text-slate-400 mb-1.5">Loan Name / Description</label><input type="text" value={newLiability.name} onChange={e => setNewLiability({...newLiability, name: e.target.value})} placeholder="e.g. HDFC Car Loan" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Total Borrowed (₹)</label><input type="number" step="any" value={newLiability.totalAmount} onChange={e => setNewLiability({...newLiability, totalAmount: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Already Paid (₹)</label><input type="number" step="any" value={newLiability.paidAmount} onChange={e => setNewLiability({...newLiability, paidAmount: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Monthly EMI (₹)</label><input type="number" step="any" value={newLiability.monthlyEmi} onChange={e => setNewLiability({...newLiability, monthlyEmi: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Loan Start Date</label><input type="date" value={newLiability.date} onChange={e => setNewLiability({...newLiability, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]" /></div>
+                  </div>
+                  <button type="button" onClick={handleSaveLiability} className="w-full bg-rose-600 text-white font-bold py-3.5 rounded-xl">{editingLiabilityId ? 'Save Changes' : 'Track Liability'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isPayEmiModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800"><h3 className="text-lg font-bold text-white"><Icon name="fa-arrow-up-right-from-square" size={18} className="mr-2 text-emerald-400"/> Log EMI Payment</h3><button onClick={() => setIsPayEmiModalOpen(false)} className="text-slate-400 p-1 bg-slate-800 rounded-full"><Icon name="fa-xmark" size={18}/></button></div>
+                <div className="p-5 space-y-4">
+                  <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-xl text-sm text-slate-300 text-center">Paying EMI for: <strong className="text-emerald-400 text-lg block mt-1">{emiData.name}</strong></div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Amount Paid (₹)</label><input type="number" step="any" value={emiData.amount} onChange={e => setEmiData({...emiData, amount: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Payment Date</label><input type="date" value={emiData.date} onChange={e => setEmiData({...emiData, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]" /></div>
+                  </div>
+                  <button type="button" onClick={handlePayEmi} className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl">Log EMI & Deduct Cash</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {sellModalData && (
+            <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl">
+                <div className="p-6 text-center border-b border-slate-800">
+                  <div className="w-16 h-16 bg-rose-500/10 text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4"><Icon name="fa-right-from-bracket" size={32} /></div>
+                  <h3 className="text-xl font-black text-white mb-2">Sell Asset Lot</h3>
+                  <p className="text-slate-400 text-sm">You are closing your position on <strong className="text-slate-200">{sellModalData.name}</strong>.</p>
+                </div>
+                <div className="p-5 space-y-3 bg-slate-900">
+                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wider text-center mb-4">Where is the money going?</p>
+                  <button onClick={() => executeSell(false)} className="w-full flex items-center justify-between p-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-left">
+                    <div className="flex items-center"><Icon name="fa-download" className="text-emerald-400 mr-3" size={20} /><div><h4 className="text-emerald-400 font-bold text-sm">Keep in Portfolio</h4><p className="text-[10px] sm:text-xs text-emerald-500/70 mt-0.5">Moves funds to Available Cash</p></div></div>
+                  </button>
+                  <button onClick={() => executeSell(true)} className="w-full flex items-center justify-between p-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-left">
+                    <div className="flex items-center"><Icon name="fa-right-from-bracket" className="text-rose-400 mr-3" size={20} /><div><h4 className="text-rose-400 font-bold text-sm">Withdraw / Cash Out</h4><p className="text-[10px] sm:text-xs text-rose-500/70 mt-0.5">Removes funds to your Bank</p></div></div>
+                  </button>
+                  <button onClick={() => setSellModalData(null)} className="w-full py-3 text-slate-400 hover:text-white text-sm font-medium mt-2">Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
