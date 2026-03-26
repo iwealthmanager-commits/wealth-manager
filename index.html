@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Wealth Manager</title>
 
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#10b981">
+  <link rel="apple-touch-icon" href="WealthManager-Icon.png">
+
   <script src="https://cdn.tailwindcss.com"></script>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -81,7 +85,11 @@
       REAL_ESTATE: { name: 'Real Estate', icon: 'fa-house', color: '#10b981', hasUnits: false },
       COMMODITY: { name: 'Commodities', icon: 'fa-gem', color: '#eab308', hasUnits: true, unitName: 'Units' },
       BOND: { name: 'Bonds', icon: 'fa-landmark', color: '#64748b', hasUnits: false },
-      FD: { name: 'Fixed Deposits', icon: 'fa-shield-halved', color: '#0ea5e9', hasUnits: false }
+      FD: { name: 'Fixed Deposits', icon: 'fa-shield-halved', color: '#0ea5e9', hasUnits: false },
+      PPF: { name: 'Public Provident Fund (PPF)', icon: 'fa-piggy-bank', color: '#14b8a6', hasUnits: false },
+      NPS: { name: 'National Pension System (NPS)', icon: 'fa-building-columns', color: '#8b5cf6', hasUnits: false },
+      SSY: { name: 'Sukanya Samriddhi (SSY)', icon: 'fa-child', color: '#ec4899', hasUnits: false },
+      OTHER: { name: 'Other / Custom', icon: 'fa-box-open', color: '#94a3b8', hasUnits: false }
     };
 
     const LIABILITY_CATEGORIES = {
@@ -168,6 +176,20 @@
         setAuthError('');
         try { await auth.signInWithPopup(googleProvider); } 
         catch (err) { setAuthError(err.message.replace('Firebase: ', '')); }
+      };
+
+      const handleResetPassword = async () => {
+        if (!authForm.email) {
+          setAuthError('Please enter your email address above to reset your password.');
+          return;
+        }
+        try {
+          await auth.sendPasswordResetEmail(authForm.email);
+          alert('Password reset link sent! Please check your email inbox (and spam folder).');
+          setAuthError('');
+        } catch (err) {
+          setAuthError(err.message.replace('Firebase: ', ''));
+        }
       };
 
       const handleLogout = () => auth.signOut();
@@ -402,6 +424,13 @@
                   <Icon name="fa-lock" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                   <input type="password" required placeholder="Password" value={authForm.password} onChange={(e) => setAuthForm({...authForm, password: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl pl-12 pr-4 py-3.5 focus:outline-none focus:border-emerald-500 transition-colors placeholder:text-slate-600"/>
                 </div>
+                
+                {authMode === 'login' && (
+                  <div className="flex justify-end">
+                    <button type="button" onClick={handleResetPassword} className="text-xs text-emerald-400 hover:text-emerald-300 font-medium transition-colors">Forgot Password?</button>
+                  </div>
+                )}
+
                 <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg flex justify-center items-center mt-2">
                   {authMode === 'signup' ? 'Create Account' : 'Log In'} <Icon name="fa-arrow-right" size={18} className="ml-2" />
                 </button>
@@ -877,6 +906,15 @@
 
         </div>
       );
+    }
+
+    // --- PWA SERVICE WORKER REGISTRATION ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(error => {
+          console.log('SW Registration failed: ', error);
+        });
+      });
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
