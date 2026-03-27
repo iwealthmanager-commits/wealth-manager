@@ -94,51 +94,76 @@
       INVESTMENT: { name: 'Investments (20%)', color: '#10b981', bg: 'bg-emerald-500', categories: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'PPF/NPS', 'Savings'] }
     };
 
-    const formatINR = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
-    const formatPercent = (val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+    const EXPENSE_CATEGORIES = ['Groceries', 'Rent/Mortgage', 'Utilities', 'Dining Out', 'Shopping', 'Travel', 'Healthcare', 'Entertainment', 'Transport', 'Subscriptions', 'Other'];
+
+    const formatINR = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0);
+    const formatPercent = (val) => `${val > 0 ? '+' : ''}${(val || 0).toFixed(2)}%`;
     const formatDate = (dateString) => dateString ? new Date(dateString).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    
+    // Safely gets the time to prevent sorting crashes with old corrupt dates
+    const safeGetTime = (d) => { const t = new Date(d).getTime(); return isNaN(t) ? 0 : t; };
 
-    // --- PIE CHART COMPONENT ---
-    const DonutChart = ({ data, title, totalLabel }) => {
-      const total = data.reduce((sum, item) => sum + item.value, 0);
-      if (total === 0) return <div className="text-center text-slate-500 py-10 bg-slate-950/30 rounded-xl border border-slate-800/50"><Icon name="fa-chart-pie" size={24} className="mb-2 opacity-50"/><p className="text-sm">No {title.toLowerCase()} this month</p></div>;
+    // Safely extracts month string for the header
+    const getDisplayMonthName = (YYYY_MM) => {
+      if (!YYYY_MM) return "This Month";
+      const [year, month] = YYYY_MM.split('-');
+      if (!month || !year) return YYYY_MM;
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const mIndex = parseInt(month, 10) - 1;
+      if (isNaN(mIndex) || mIndex < 0 || mIndex > 11) return YYYY_MM;
+      return `${monthNames[mIndex]} ${year}`;
+    };
 
-      let cumulativePercent = 0;
-      const segments = data.map((item, index) => {
-        const percent = (item.value / total) * 100;
-        const dashArray = `${percent} ${100 - percent}`;
-        const dashOffset = -cumulativePercent;
-        cumulativePercent += percent;
-        return <circle key={index} r="15.91549430918954" cx="21" cy="21" fill="transparent" stroke={item.color} strokeWidth="5" strokeDasharray={dashArray} strokeDashoffset={dashOffset} className="transition-all duration-1000 ease-out" />;
-      });
+    // --- BULLETPROOF PIE CHART COMPONENT ---
+    const DonutChart = ({ data = [], title = "", totalLabel = "" }) => {
+      try {
+        const total = data.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
+        if (total <= 0) return <div className="text-center text-slate-500 py-10 bg-slate-950/30 rounded-xl border border-slate-800/50"><Icon name="fa-chart-pie" size={24} className="mb-2 opacity-50"/><p className="text-sm">No {title.toLowerCase()} this month</p></div>;
 
-      return (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col items-center">
-          <h3 className="text-sm font-bold text-slate-300 w-full text-left mb-4">{title}</h3>
-          <div className="relative w-32 h-32 md:w-40 md:h-40 mb-4">
-            <svg viewBox="0 0 42 42" className="w-full h-full rounded-full" style={{ transform: 'rotate(-90deg)' }}>
-              <circle r="15.91549430918954" cx="21" cy="21" fill="transparent" stroke="#1e293b" strokeWidth="5" />
-              {segments}
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{totalLabel}</span>
-              <span className="text-sm font-black text-white">{formatINR(total)}</span>
+        let cumulativePercent = 0;
+        const segments = data.map((item, index) => {
+          const val = parseFloat(item.value) || 0;
+          const percent = total > 0 ? (val / total) * 100 : 0;
+          const safePercent = isNaN(percent) ? 0 : percent;
+          const dashArray = `${safePercent} ${100 - safePercent}`;
+          const dashOffset = -cumulativePercent;
+          cumulativePercent += safePercent;
+          return <circle key={index} r="15.91549430918954" cx="21" cy="21" fill="transparent" stroke={item.color || '#3b82f6'} strokeWidth="5" strokeDasharray={dashArray} strokeDashoffset={isNaN(dashOffset) ? 0 : dashOffset} className="transition-all duration-1000 ease-out" />;
+        });
+
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col items-center">
+            <h3 className="text-sm font-bold text-slate-300 w-full text-left mb-4">{title}</h3>
+            <div className="relative w-32 h-32 md:w-40 md:h-40 mb-4">
+              <svg viewBox="0 0 42 42" className="w-full h-full rounded-full" style={{ transform: 'rotate(-90deg)' }}>
+                <circle r="15.91549430918954" cx="21" cy="21" fill="transparent" stroke="#1e293b" strokeWidth="5" />
+                {segments}
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{totalLabel}</span>
+                <span className="text-sm font-black text-white">{formatINR(total)}</span>
+              </div>
+            </div>
+            <div className="w-full space-y-2.5 max-h-[150px] overflow-y-auto custom-scrollbar pr-1">
+              {data.map((item, i) => (
+                <div key={i} className="flex justify-between items-center text-xs">
+                  <div className="flex items-center truncate mr-2"><div className="w-2.5 h-2.5 rounded-full mr-2 shrink-0" style={{backgroundColor: item.color || '#3b82f6'}}></div><span className="text-slate-300 truncate">{item.label}</span></div>
+                  <div className="text-right shrink-0"><span className="font-bold text-white mr-2">{formatINR(item.value)}</span><span className="text-slate-500 w-8 inline-block">{((item.value / total) * 100).toFixed(0)}%</span></div>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="w-full space-y-2.5 max-h-[150px] overflow-y-auto custom-scrollbar pr-1">
-            {data.map((item, i) => (
-              <div key={i} className="flex justify-between items-center text-xs">
-                <div className="flex items-center truncate mr-2"><div className="w-2.5 h-2.5 rounded-full mr-2 shrink-0" style={{backgroundColor: item.color}}></div><span className="text-slate-300 truncate">{item.label}</span></div>
-                <div className="text-right shrink-0"><span className="font-bold text-white mr-2">{formatINR(item.value)}</span><span className="text-slate-500 w-8 inline-block">{((item.value / total) * 100).toFixed(0)}%</span></div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
+        );
+      } catch (err) {
+        return <div className="text-rose-400 text-xs p-4 bg-slate-900 rounded-2xl border border-rose-900/50 text-center">Chart Error</div>;
+      }
     };
 
     function App() {
-      const getTodayDate = () => new Date().toISOString().split('T')[0];
+      const getTodayDate = () => {
+        try { return new Date().toISOString().split('T')[0]; } 
+        catch (e) { return "2026-03-27"; }
+      };
       
       const [user, setUser] = useState(null);
       const [authLoading, setAuthLoading] = useState(true);
@@ -241,13 +266,20 @@
       // --- CALCULATIONS ---
       const transactionStats = useMemo(() => {
         let totalIncome = 0; let totalWithdrawal = 0;
-        transactions.forEach(t => { if (t.type === 'INCOME') totalIncome += t.amount; else totalWithdrawal += t.amount; });
+        transactions.forEach(t => { 
+          const amt = parseFloat(t.amount) || 0;
+          if (t.type === 'INCOME') totalIncome += amt; else totalWithdrawal += amt; 
+        });
         return { totalIncome, totalWithdrawal, netCashFlow: totalIncome - totalWithdrawal };
       }, [transactions]);
 
       const liabilityStats = useMemo(() => {
         let totalBorrowed = 0; let totalPaid = 0; let totalMonthlyEmi = 0;
-        liabilities.forEach(l => { totalBorrowed += l.totalAmount; totalPaid += l.paidAmount; totalMonthlyEmi += l.monthlyEmi; });
+        liabilities.forEach(l => { 
+          totalBorrowed += parseFloat(l.totalAmount) || 0; 
+          totalPaid += parseFloat(l.paidAmount) || 0; 
+          totalMonthlyEmi += parseFloat(l.monthlyEmi) || 0; 
+        });
         return { totalBorrowed, totalPaid, totalRemaining: totalBorrowed - totalPaid, totalMonthlyEmi };
       }, [liabilities]);
 
@@ -263,10 +295,14 @@
       const portfolioStats = useMemo(() => {
         let totalInvested = 0; let totalCurrent = 0; let totalYieldEarned = 0; const categoryTotals = {};
         const enrichedHoldings = holdings.map(asset => {
-          let currentVal = asset.current; 
-          totalInvested += asset.invested; totalCurrent += currentVal; totalYieldEarned += (asset.yieldEarned || 0);
+          let currentVal = parseFloat(asset.current) || 0; 
+          let investedVal = parseFloat(asset.invested) || 0;
+          let yieldVal = parseFloat(asset.yieldEarned) || 0;
+          totalInvested += investedVal; totalCurrent += currentVal; totalYieldEarned += yieldVal;
           if (!categoryTotals[asset.category]) categoryTotals[asset.category] = { invested: 0, current: 0, yield: 0 };
-          categoryTotals[asset.category].invested += asset.invested; categoryTotals[asset.category].current += currentVal; categoryTotals[asset.category].yield += (asset.yieldEarned || 0);
+          categoryTotals[asset.category].invested += investedVal; 
+          categoryTotals[asset.category].current += currentVal; 
+          categoryTotals[asset.category].yield += yieldVal;
           return { ...asset, computedCurrent: currentVal };
         });
         const capitalGain = totalCurrent - totalInvested;
@@ -284,71 +320,84 @@
           if (!groups[asset.category]) groups[asset.category] = {};
           if (!groups[asset.category][asset.name]) groups[asset.category][asset.name] = { name: asset.name, category: asset.category, totalQuantity: 0, totalInvested: 0, totalCurrent: 0, totalYield: 0, lots: [] };
           const group = groups[asset.category][asset.name];
-          group.totalQuantity += (asset.quantity || 0); group.totalInvested += asset.invested; group.totalCurrent += asset.computedCurrent; group.totalYield += (asset.yieldEarned || 0);
+          group.totalQuantity += (parseFloat(asset.quantity) || 0); group.totalInvested += (parseFloat(asset.invested) || 0); group.totalCurrent += (parseFloat(asset.computedCurrent) || 0); group.totalYield += (parseFloat(asset.yieldEarned) || 0);
           group.lots.push(asset);
         });
-        Object.values(groups).forEach(cat => { Object.values(cat).forEach(assetGrp => { assetGrp.lots.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)); }); });
+        Object.values(groups).forEach(cat => { Object.values(cat).forEach(assetGrp => { assetGrp.lots.sort((a, b) => safeGetTime(b.date) - safeGetTime(a.date)); }); });
         return groups;
       }, [portfolioStats.enrichedHoldings]);
 
-      // --- CRASH-PROOF BUDGET CALCULATIONS ---
+      // --- BULLETPROOF BUDGET CALCULATIONS ---
       const budgetStats = useMemo(() => {
-        // Safe string matching - ignores any old transactions that don't have a date property
-        const monthTx = transactions.filter(t => t.date && t.date.startsWith(selectedMonth));
-        const monthExp = expenses.filter(e => e.date && e.date.startsWith(selectedMonth));
+        try {
+          const safeMonth = selectedMonth || '';
+          const monthTx = transactions.filter(t => t && t.date && t.date.startsWith(safeMonth));
+          const monthExp = expenses.filter(e => e && e.date && e.date.startsWith(safeMonth));
 
-        let totalIncome = 0; const incomeBySource = {};
-        monthTx.filter(t => t.type === 'INCOME').forEach(t => {
-          totalIncome += t.amount; incomeBySource[t.source] = (incomeBySource[t.source] || 0) + t.amount;
-        });
+          let totalIncome = 0; const incomeBySource = {};
+          monthTx.filter(t => t.type === 'INCOME').forEach(t => {
+            const amt = parseFloat(t.amount) || 0;
+            totalIncome += amt; 
+            const src = t.source || 'Other';
+            incomeBySource[src] = (incomeBySource[src] || 0) + amt;
+          });
 
-        let totalExpense = 0; const expenseByCat = {};
-        let needs = 0; let wants = 0; let investments = 0;
+          let totalExpense = 0; const expenseByCat = {};
+          let needs = 0; let wants = 0; let investments = 0;
 
-        monthExp.forEach(e => {
-          totalExpense += e.amount; 
-          expenseByCat[e.category] = (expenseByCat[e.category] || 0) + e.amount;
-          if (e.type === 'NEED') needs += e.amount;
-          if (e.type === 'WANT') wants += e.amount;
-          if (e.type === 'INVESTMENT') investments += e.amount;
-        });
+          monthExp.forEach(e => {
+            const amt = parseFloat(e.amount) || 0;
+            totalExpense += amt; 
+            const cat = e.category || 'Other';
+            expenseByCat[cat] = (expenseByCat[cat] || 0) + amt;
+            if (e.type === 'NEED') needs += amt;
+            if (e.type === 'WANT') wants += amt;
+            if (e.type === 'INVESTMENT') investments += amt;
+          });
 
-        const needsLimit = totalIncome * 0.50;
-        const wantsLimit = totalIncome * 0.30;
-        const investLimit = totalIncome * 0.20;
+          const needsLimit = totalIncome * 0.50;
+          const wantsLimit = totalIncome * 0.30;
+          const investLimit = totalIncome * 0.20;
 
-        const colors = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#0ea5e9', '#f97316', '#d946ef', '#eab308'];
-        
-        const incomeData = Object.entries(incomeBySource).map(([label, value], i) => ({ label, value, color: colors[i % colors.length] })).sort((a,b) => b.value - a.value);
-        const expenseData = Object.entries(expenseByCat).map(([label, value], i) => ({ label, value, color: colors[(i+3) % colors.length] })).sort((a,b) => b.value - a.value);
+          // Safe percentage calculator prevents NaN errors from crashing the UI
+          const safePct = (val, lim) => {
+            if (!lim || lim <= 0) return 0;
+            const p = (val / lim) * 100;
+            return isNaN(p) ? 0 : Math.min(p, 100);
+          };
 
-        return { 
-          totalIncome, totalExpense, remaining: totalIncome - totalExpense, 
-          incomeData, expenseData, monthExp,
-          needs, wants, investments, needsLimit, wantsLimit, investLimit,
-          needsPct: totalIncome > 0 ? Math.min((needs / needsLimit) * 100, 100) : 0, 
-          wantsPct: totalIncome > 0 ? Math.min((wants / wantsLimit) * 100, 100) : 0, 
-          investPct: totalIncome > 0 ? Math.min((investments / investLimit) * 100, 100) : 0
-        };
+          const colors = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#0ea5e9', '#f97316', '#d946ef', '#eab308'];
+          
+          const incomeData = Object.entries(incomeBySource).map(([label, value], i) => ({ label, value, color: colors[i % colors.length] })).sort((a,b) => b.value - a.value);
+          const expenseData = Object.entries(expenseByCat).map(([label, value], i) => ({ label, value, color: colors[(i+3) % colors.length] })).sort((a,b) => b.value - a.value);
+
+          return { 
+            monthlyIncome: totalIncome || 0, 
+            totalExpense: totalExpense || 0, 
+            remaining: (totalIncome - totalExpense) || 0, 
+            incomeData, expenseData, monthExp,
+            needs: needs || 0, wants: wants || 0, investments: investments || 0, 
+            needsLimit: needsLimit || 0, wantsLimit: wantsLimit || 0, investLimit: investLimit || 0,
+            needsPct: safePct(needs, needsLimit), 
+            wantsPct: safePct(wants, wantsLimit), 
+            investPct: safePct(investments, investLimit),
+            currentMonthExpenses: monthExp
+          };
+        } catch(err) {
+          console.error("Budget Error", err);
+          return { monthlyIncome: 0, totalExpense: 0, remaining: 0, incomeData: [], expenseData: [], monthExp: [], needs: 0, wants: 0, investments: 0, needsLimit: 0, wantsLimit: 0, investLimit: 0, needsPct: 0, wantsPct: 0, investPct: 0, currentMonthExpenses: [] };
+        }
       }, [transactions, expenses, selectedMonth]);
 
-      const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested - expenses.reduce((sum, e) => sum + e.amount, 0);
+      const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested - expenses.reduce((sum, e) => sum + (parseFloat(e.amount)||0), 0);
       const totalNetWorth = portfolioStats.totalCurrent + availableCash - liabilityStats.totalRemaining;
-
-      // Safe Month Parsing for Mobile
-      const getDisplayMonthName = (YYYY_MM) => {
-        if (!YYYY_MM) return "";
-        const [year, month] = YYYY_MM.split('-');
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        return `${monthNames[parseInt(month, 10) - 1]} ${year}`;
-      };
 
       // --- CRUD ---
       const handleSaveExpense = async () => {
         try {
           if (!user || !newExpense.amount || !newExpense.category) return alert("Fill amount and category.");
           const expId = editingExpenseId || Date.now().toString();
-          await getUserPath(user.uid, 'daily_expenses').doc(expId).set({ id: expId, type: newExpense.type, category: newExpense.category, amount: parseFloat(newExpense.amount), date: newExpense.date, note: newExpense.note });
+          await getUserPath(user.uid, 'daily_expenses').doc(expId).set({ id: expId, type: newExpense.type || 'NEED', category: newExpense.category, amount: parseFloat(newExpense.amount), date: newExpense.date, note: newExpense.note });
           setIsExpenseModalOpen(false);
         } catch (error) { alert(error.message); }
       };
@@ -535,14 +584,14 @@
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {liabilities.map(lib => {
                         const catData = LIABILITY_CATEGORIES[lib.category];
-                        const remaining = lib.totalAmount - lib.paidAmount;
-                        const percentPaid = lib.totalAmount > 0 ? (lib.paidAmount / lib.totalAmount) * 100 : 0;
+                        const remaining = (parseFloat(lib.totalAmount)||0) - (parseFloat(lib.paidAmount)||0);
+                        const percentPaid = lib.totalAmount > 0 ? ((parseFloat(lib.paidAmount)||0) / (parseFloat(lib.totalAmount)||0)) * 100 : 0;
                         return (
                           <div key={lib.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-5 flex flex-col">
                             <div className="flex justify-between items-start mb-4">
                               <div className="flex items-center space-x-3">
                                 <div className="p-2 rounded-lg" style={{ backgroundColor: `${catData.color}15`, color: catData.color }}><Icon name={catData.icon} size={18} /></div>
-                                {/* ✅ DEBT TAKEN DATE ADDED HERE */}
+                                {/* ✅ DEBT TAKEN DATE IS HERE */}
                                 <div><h3 className="font-bold text-slate-100">{lib.name}</h3><p className="text-[10px] text-slate-500 uppercase">{catData.name} • {formatDate(lib.date)}</p></div>
                               </div>
                               <div className="flex space-x-2">
@@ -557,8 +606,8 @@
                             </div>
                             <div className="mt-auto">
                               <div className="flex justify-between text-xs mb-1.5"><span className="text-emerald-500 font-bold">{percentPaid.toFixed(1)}% Paid</span></div>
-                              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-3"><div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${percentPaid}%` }}></div></div>
-                              <button onClick={() => { setEmiData({ liabilityId: lib.id, name: lib.name, amount: lib.monthlyEmi.toString(), date: getTodayDate() }); setIsPayEmiModalOpen(true); }} className="w-full py-2 bg-rose-500/10 text-rose-400 rounded-xl text-sm font-bold">Log EMI Payment</button>
+                              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-3"><div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${isNaN(percentPaid)? 0 : percentPaid}%` }}></div></div>
+                              <button onClick={() => { setEmiData({ liabilityId: lib.id, name: lib.name, amount: (lib.monthlyEmi||0).toString(), date: getTodayDate() }); setIsPayEmiModalOpen(true); }} className="w-full py-2 bg-rose-500/10 text-rose-400 rounded-xl text-sm font-bold">Log EMI Payment</button>
                             </div>
                           </div>
                         );
@@ -598,7 +647,7 @@
                       <button onClick={() => { setEditingTransactionId(null); setIsTransactionModalOpen(true); }} className="text-slate-400 hover:text-white text-xs font-bold bg-slate-800 px-3 py-1.5 rounded-lg">+ Add</button>
                     </div>
                     <div className="space-y-2 overflow-y-auto pr-2 custom-scrollbar flex-grow">
-                      {transactions.length === 0 ? <p className="text-center text-slate-500 text-sm py-4">No cash flow tracked.</p> : [...transactions].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).map((tx) => (
+                      {transactions.length === 0 ? <p className="text-center text-slate-500 text-sm py-4">No cash flow tracked.</p> : [...transactions].sort((a,b) => safeGetTime(b.date) - safeGetTime(a.date)).map((tx) => (
                         <div key={tx.id} className="flex justify-between items-center bg-slate-950/50 p-3 rounded-lg border border-slate-800/50">
                           <div className="flex items-center space-x-3 truncate">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'INCOME' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{tx.type === 'INCOME' ? <Icon name="fa-arrow-down" size={12} /> : <Icon name="fa-right-from-bracket" size={12} />}</div>
@@ -713,7 +762,6 @@
               </div>
             )}
 
-
             {/* ================================================== */}
             {/* TAB 2: BUDGET & EXPENSE TRACKER (WITH PIE CHARTS) */}
             {/* ================================================== */}
@@ -756,27 +804,27 @@
                   <div className="space-y-5">
                     <div>
                       <div className="flex justify-between text-xs mb-1.5"><span className="font-bold text-blue-400">Needs (50%)</span><span className="text-slate-400">{formatINR(budgetStats.needs)} / {formatINR(budgetStats.needsLimit)}</span></div>
-                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800"><div className="bg-blue-500 h-full rounded-full transition-all" style={{ width: `${budgetStats.needsPct}%` }}></div></div>
+                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800"><div className="bg-blue-500 h-full rounded-full transition-all" style={{ width: `${isNaN(budgetStats.needsPct)? 0 : budgetStats.needsPct}%` }}></div></div>
                     </div>
                     <div>
                       <div className="flex justify-between text-xs mb-1.5"><span className="font-bold text-pink-400">Wants (30%)</span><span className="text-slate-400">{formatINR(budgetStats.wants)} / {formatINR(budgetStats.wantsLimit)}</span></div>
-                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800"><div className="bg-pink-500 h-full rounded-full transition-all" style={{ width: `${budgetStats.wantsPct}%` }}></div></div>
+                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800"><div className="bg-pink-500 h-full rounded-full transition-all" style={{ width: `${isNaN(budgetStats.wantsPct)? 0 : budgetStats.wantsPct}%` }}></div></div>
                     </div>
                     <div>
                       <div className="flex justify-between text-xs mb-1.5"><span className="font-bold text-emerald-400">Investments (20%)</span><span className="text-slate-400">{formatINR(budgetStats.investments)} / {formatINR(budgetStats.investLimit)}</span></div>
-                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800"><div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${budgetStats.investPct}%` }}></div></div>
+                      <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800"><div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${isNaN(budgetStats.investPct)? 0 : budgetStats.investPct}%` }}></div></div>
                     </div>
                   </div>
                 </div>
 
-                {/* 4. Expense Log List (Using safe Date Parsing) */}
+                {/* 4. Expense Log List */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                   <h2 className="text-lg font-bold text-white mb-4 flex items-center border-b border-slate-800 pb-3"><Icon name="fa-receipt" className="mr-2 text-slate-400"/> Expenses in {getDisplayMonthName(selectedMonth)}</h2>
                   <div className="space-y-2">
                     {budgetStats.currentMonthExpenses.length === 0 ? (
                       <p className="text-slate-500 text-center py-6 text-sm">No expenses logged for this month.</p>
                     ) : (
-                      [...budgetStats.currentMonthExpenses].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).map(exp => {
+                      [...budgetStats.currentMonthExpenses].sort((a,b) => safeGetTime(b.date) - safeGetTime(a.date)).map(exp => {
                         const typeInfo = EXPENSE_TYPES[exp.type] || { bg: 'bg-slate-500' };
                         return (
                           <div key={exp.id} className="flex justify-between items-center bg-slate-950/50 p-3 rounded-xl border border-slate-800/50">
