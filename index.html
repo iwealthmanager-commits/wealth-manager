@@ -179,7 +179,7 @@
       const [editingLiabilityId, setEditingLiabilityId] = useState(null);
       const [editingExpenseId, setEditingExpenseId] = useState(null);
 
-      // Forms - FIXED BUG HERE (Added type: 'NEED')
+      // Forms
       const [newAsset, setNewAsset] = useState({ category: 'IN_STOCK', name: '', invested: '', buyPrice: '', currentPrice: '', manualCurrentValue: '', date: getTodayDate() });
       const [newTransaction, setNewTransaction] = useState({ type: 'INCOME', source: 'Primary Salary', customSource: '', amount: '', date: getTodayDate() });
       const [newExpense, setNewExpense] = useState({ type: 'NEED', category: 'Groceries', amount: '', date: getTodayDate(), note: '' });
@@ -287,14 +287,15 @@
           group.totalQuantity += (asset.quantity || 0); group.totalInvested += asset.invested; group.totalCurrent += asset.computedCurrent; group.totalYield += (asset.yieldEarned || 0);
           group.lots.push(asset);
         });
-        Object.values(groups).forEach(cat => { Object.values(cat).forEach(assetGrp => { assetGrp.lots.sort((a, b) => new Date(b.date) - new Date(a.date)); }); });
+        Object.values(groups).forEach(cat => { Object.values(cat).forEach(assetGrp => { assetGrp.lots.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)); }); });
         return groups;
       }, [portfolioStats.enrichedHoldings]);
 
-      // --- PIE CHART DATA (BUDGET TAB) ---
+      // --- CRASH-PROOF BUDGET CALCULATIONS ---
       const budgetStats = useMemo(() => {
-        const monthTx = transactions.filter(t => t.date.startsWith(selectedMonth));
-        const monthExp = expenses.filter(e => e.date.startsWith(selectedMonth));
+        // Safe string matching - ignores any old transactions that don't have a date property
+        const monthTx = transactions.filter(t => t.date && t.date.startsWith(selectedMonth));
+        const monthExp = expenses.filter(e => e.date && e.date.startsWith(selectedMonth));
 
         let totalIncome = 0; const incomeBySource = {};
         monthTx.filter(t => t.type === 'INCOME').forEach(t => {
@@ -333,6 +334,14 @@
 
       const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested - expenses.reduce((sum, e) => sum + e.amount, 0);
       const totalNetWorth = portfolioStats.totalCurrent + availableCash - liabilityStats.totalRemaining;
+
+      // Safe Month Parsing for Mobile
+      const getDisplayMonthName = (YYYY_MM) => {
+        if (!YYYY_MM) return "";
+        const [year, month] = YYYY_MM.split('-');
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return `${monthNames[parseInt(month, 10) - 1]} ${year}`;
+      };
 
       // --- CRUD ---
       const handleSaveExpense = async () => {
@@ -533,7 +542,7 @@
                             <div className="flex justify-between items-start mb-4">
                               <div className="flex items-center space-x-3">
                                 <div className="p-2 rounded-lg" style={{ backgroundColor: `${catData.color}15`, color: catData.color }}><Icon name={catData.icon} size={18} /></div>
-                                {/* ADDED DEBT TAKEN DATE HERE */}
+                                {/* ✅ DEBT TAKEN DATE ADDED HERE */}
                                 <div><h3 className="font-bold text-slate-100">{lib.name}</h3><p className="text-[10px] text-slate-500 uppercase">{catData.name} • {formatDate(lib.date)}</p></div>
                               </div>
                               <div className="flex space-x-2">
@@ -589,7 +598,7 @@
                       <button onClick={() => { setEditingTransactionId(null); setIsTransactionModalOpen(true); }} className="text-slate-400 hover:text-white text-xs font-bold bg-slate-800 px-3 py-1.5 rounded-lg">+ Add</button>
                     </div>
                     <div className="space-y-2 overflow-y-auto pr-2 custom-scrollbar flex-grow">
-                      {transactions.length === 0 ? <p className="text-center text-slate-500 text-sm py-4">No cash flow tracked.</p> : [...transactions].sort((a,b) => new Date(b.date) - new Date(a.date)).map((tx) => (
+                      {transactions.length === 0 ? <p className="text-center text-slate-500 text-sm py-4">No cash flow tracked.</p> : [...transactions].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).map((tx) => (
                         <div key={tx.id} className="flex justify-between items-center bg-slate-950/50 p-3 rounded-lg border border-slate-800/50">
                           <div className="flex items-center space-x-3 truncate">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${tx.type === 'INCOME' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{tx.type === 'INCOME' ? <Icon name="fa-arrow-down" size={12} /> : <Icon name="fa-right-from-bracket" size={12} />}</div>
@@ -725,9 +734,7 @@
 
                 {/* 2. Analytics Pie Charts Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                  {/* Income Pie Chart */}
                   <DonutChart data={budgetStats.incomeData} title="Income Contribution" totalLabel="Total Income" />
-                  {/* Expenses Pie Chart */}
                   <DonutChart data={budgetStats.expenseData} title="Expense Breakdown" totalLabel="Total Spent" />
                 </div>
 
@@ -762,14 +769,14 @@
                   </div>
                 </div>
 
-                {/* 4. Expense Log List */}
+                {/* 4. Expense Log List (Using safe Date Parsing) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-                  <h2 className="text-lg font-bold text-white mb-4 flex items-center border-b border-slate-800 pb-3"><Icon name="fa-receipt" className="mr-2 text-slate-400"/> Expenses in {new Date(selectedMonth + '-01').toLocaleDateString('en-US', {month: 'short', year: 'numeric'})}</h2>
+                  <h2 className="text-lg font-bold text-white mb-4 flex items-center border-b border-slate-800 pb-3"><Icon name="fa-receipt" className="mr-2 text-slate-400"/> Expenses in {getDisplayMonthName(selectedMonth)}</h2>
                   <div className="space-y-2">
                     {budgetStats.currentMonthExpenses.length === 0 ? (
                       <p className="text-slate-500 text-center py-6 text-sm">No expenses logged for this month.</p>
                     ) : (
-                      [...budgetStats.currentMonthExpenses].sort((a,b) => new Date(b.date) - new Date(a.date)).map(exp => {
+                      [...budgetStats.currentMonthExpenses].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0)).map(exp => {
                         const typeInfo = EXPENSE_TYPES[exp.type] || { bg: 'bg-slate-500' };
                         return (
                           <div key={exp.id} className="flex justify-between items-center bg-slate-950/50 p-3 rounded-xl border border-slate-800/50">
@@ -873,7 +880,7 @@
           {isTransactionModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
               <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl p-5">
-                <div className="flex justify-between items-center mb-5 border-b border-slate-800 pb-3"><h3 className="text-lg font-bold text-white">Log Cash Flow</h3><button onClick={() => setIsTransactionModalOpen(false)} className="text-slate-400"><Icon name="fa-xmark" size={20}/></button></div>
+                <div className="flex justify-between items-center mb-5 border-b border-slate-800 pb-3"><h3 className="text-lg font-bold text-white">Log Monthly Income</h3><button onClick={() => setIsTransactionModalOpen(false)} className="text-slate-400"><Icon name="fa-xmark" size={20}/></button></div>
                 <div className="space-y-4">
                   <div className="flex bg-slate-950 rounded-xl p-1 border border-slate-800">
                     <button type="button" onClick={() => setNewTransaction({...newTransaction, type: 'INCOME'})} className={`flex-1 py-2 text-sm font-bold rounded-lg ${newTransaction.type === 'INCOME' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500'}`}>Income</button>
@@ -890,6 +897,7 @@
                     <div><label className="block text-xs text-slate-400 mb-1.5">Amount (₹)</label><input type="number" step="any" value={newTransaction.amount} onChange={e => setNewTransaction({...newTransaction, amount: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
                     <div><label className="block text-xs text-slate-400 mb-1.5">Date</label><input type="date" value={newTransaction.date} onChange={e => setNewTransaction({...newTransaction, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]"/></div>
                   </div>
+                  <p className="text-xs text-slate-500 text-center">This sets the budget limit for the 50/30/20 rule.</p>
                   <button type="button" onClick={handleSaveTransaction} className={`w-full text-white font-bold py-3.5 rounded-xl ${newTransaction.type === 'INCOME' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}>Save Transaction</button>
                 </div>
               </div>
