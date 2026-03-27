@@ -88,7 +88,11 @@
       CREDIT_CARD: { name: 'Credit Card Debt', icon: 'fa-credit-card', color: '#ef4444' }
     };
 
-    const EXPENSE_CATEGORIES = ['Groceries', 'Rent/Mortgage', 'Utilities', 'Dining Out', 'Shopping', 'Travel', 'Healthcare', 'Entertainment', 'Transport', 'Subscriptions', 'Other'];
+    const EXPENSE_TYPES = {
+      NEED: { name: 'Needs (50%)', color: '#3b82f6', bg: 'bg-blue-500', categories: ['Groceries', 'Rent/Mortgage', 'Utilities', 'Insurance', 'Transport', 'Healthcare', 'Debt EMI'] },
+      WANT: { name: 'Wants (30%)', color: '#ec4899', bg: 'bg-pink-500', categories: ['Dining Out', 'Entertainment', 'Shopping', 'Travel', 'Hobbies', 'Subscriptions'] },
+      INVESTMENT: { name: 'Investments (20%)', color: '#10b981', bg: 'bg-emerald-500', categories: ['Stocks', 'Mutual Funds', 'Crypto', 'FD/RD', 'PPF/NPS', 'Savings'] }
+    };
 
     const formatINR = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
     const formatPercent = (val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
@@ -148,7 +152,7 @@
       const [isAppLocked, setIsAppLocked] = useState(false);
       
       const [activeTab, setActiveTab] = useState('wealth'); 
-      const [selectedMonth, setSelectedMonth] = useState(getTodayDate().slice(0, 7)); // YYYY-MM format
+      const [selectedMonth, setSelectedMonth] = useState(getTodayDate().slice(0, 7)); 
 
       const [transactions, setTransactions] = useState([]); 
       const [holdings, setHoldings] = useState([]); 
@@ -173,11 +177,12 @@
       const [editingAssetId, setEditingAssetId] = useState(null);
       const [editingTransactionId, setEditingTransactionId] = useState(null);
       const [editingLiabilityId, setEditingLiabilityId] = useState(null);
+      const [editingExpenseId, setEditingExpenseId] = useState(null);
 
-      // Forms
+      // Forms - FIXED BUG HERE (Added type: 'NEED')
       const [newAsset, setNewAsset] = useState({ category: 'IN_STOCK', name: '', invested: '', buyPrice: '', currentPrice: '', manualCurrentValue: '', date: getTodayDate() });
       const [newTransaction, setNewTransaction] = useState({ type: 'INCOME', source: 'Primary Salary', customSource: '', amount: '', date: getTodayDate() });
-      const [newExpense, setNewExpense] = useState({ category: 'Groceries', amount: '', date: getTodayDate(), note: '' });
+      const [newExpense, setNewExpense] = useState({ type: 'NEED', category: 'Groceries', amount: '', date: getTodayDate(), note: '' });
       const [newLiability, setNewLiability] = useState({ category: 'PERSONAL_LOAN', name: '', totalAmount: '', paidAmount: '', monthlyEmi: '', date: getTodayDate() });
       const [yieldData, setYieldData] = useState({ assetId: null, assetName: '', amount: '', date: getTodayDate() });
       const [emiData, setEmiData] = useState({ liabilityId: null, name: '', amount: '', date: getTodayDate() });
@@ -297,16 +302,33 @@
         });
 
         let totalExpense = 0; const expenseByCat = {};
+        let needs = 0; let wants = 0; let investments = 0;
+
         monthExp.forEach(e => {
-          totalExpense += e.amount; expenseByCat[e.category] = (expenseByCat[e.category] || 0) + e.amount;
+          totalExpense += e.amount; 
+          expenseByCat[e.category] = (expenseByCat[e.category] || 0) + e.amount;
+          if (e.type === 'NEED') needs += e.amount;
+          if (e.type === 'WANT') wants += e.amount;
+          if (e.type === 'INVESTMENT') investments += e.amount;
         });
+
+        const needsLimit = totalIncome * 0.50;
+        const wantsLimit = totalIncome * 0.30;
+        const investLimit = totalIncome * 0.20;
 
         const colors = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#0ea5e9', '#f97316', '#d946ef', '#eab308'];
         
         const incomeData = Object.entries(incomeBySource).map(([label, value], i) => ({ label, value, color: colors[i % colors.length] })).sort((a,b) => b.value - a.value);
         const expenseData = Object.entries(expenseByCat).map(([label, value], i) => ({ label, value, color: colors[(i+3) % colors.length] })).sort((a,b) => b.value - a.value);
 
-        return { totalIncome, totalExpense, remaining: totalIncome - totalExpense, incomeData, expenseData, monthExp };
+        return { 
+          totalIncome, totalExpense, remaining: totalIncome - totalExpense, 
+          incomeData, expenseData, monthExp,
+          needs, wants, investments, needsLimit, wantsLimit, investLimit,
+          needsPct: totalIncome > 0 ? Math.min((needs / needsLimit) * 100, 100) : 0, 
+          wantsPct: totalIncome > 0 ? Math.min((wants / wantsLimit) * 100, 100) : 0, 
+          investPct: totalIncome > 0 ? Math.min((investments / investLimit) * 100, 100) : 0
+        };
       }, [transactions, expenses, selectedMonth]);
 
       const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested - expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -317,7 +339,7 @@
         try {
           if (!user || !newExpense.amount || !newExpense.category) return alert("Fill amount and category.");
           const expId = editingExpenseId || Date.now().toString();
-          await getUserPath(user.uid, 'daily_expenses').doc(expId).set({ id: expId, category: newExpense.category, amount: parseFloat(newExpense.amount), date: newExpense.date, note: newExpense.note });
+          await getUserPath(user.uid, 'daily_expenses').doc(expId).set({ id: expId, type: newExpense.type, category: newExpense.category, amount: parseFloat(newExpense.amount), date: newExpense.date, note: newExpense.note });
           setIsExpenseModalOpen(false);
         } catch (error) { alert(error.message); }
       };
@@ -373,7 +395,7 @@
           const amt = parseFloat(emiData.amount);
           const libToUpdate = liabilities.find(l => l.id === emiData.liabilityId);
           await getUserPath(user.uid, 'liabilities').doc(emiData.liabilityId.toString()).set({ ...libToUpdate, paidAmount: libToUpdate.paidAmount + amt });
-          await getUserPath(user.uid, 'daily_expenses').doc(Date.now().toString()).set({ id: Date.now().toString(), category: 'Debt EMI', note: `EMI: ${emiData.name}`, amount: amt, date: emiData.date });
+          await getUserPath(user.uid, 'daily_expenses').doc(Date.now().toString()).set({ id: Date.now().toString(), type: 'NEED', category: 'Debt EMI', note: `EMI: ${emiData.name}`, amount: amt, date: emiData.date });
           setIsPayEmiModalOpen(false);
         } catch (error) { alert(error.message); }
       };
@@ -445,7 +467,6 @@
 
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 font-sans pb-24 overflow-x-hidden">
-          {/* HEADER */}
           <header className="border-b border-slate-800 bg-slate-900/90 sticky top-0 z-40 backdrop-blur-md">
             <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
               <div className="flex items-center space-x-3">
@@ -512,7 +533,8 @@
                             <div className="flex justify-between items-start mb-4">
                               <div className="flex items-center space-x-3">
                                 <div className="p-2 rounded-lg" style={{ backgroundColor: `${catData.color}15`, color: catData.color }}><Icon name={catData.icon} size={18} /></div>
-                                <div><h3 className="font-bold text-slate-100">{lib.name}</h3><p className="text-[10px] text-slate-500 uppercase">{catData.name}</p></div>
+                                {/* ADDED DEBT TAKEN DATE HERE */}
+                                <div><h3 className="font-bold text-slate-100">{lib.name}</h3><p className="text-[10px] text-slate-500 uppercase">{catData.name} • {formatDate(lib.date)}</p></div>
                               </div>
                               <div className="flex space-x-2">
                                 <button onClick={() => openEditLiability(lib)} className="text-slate-500 hover:text-blue-400"><Icon name="fa-pen-to-square" size={12}/></button>
@@ -748,10 +770,11 @@
                       <p className="text-slate-500 text-center py-6 text-sm">No expenses logged for this month.</p>
                     ) : (
                       [...budgetStats.currentMonthExpenses].sort((a,b) => new Date(b.date) - new Date(a.date)).map(exp => {
+                        const typeInfo = EXPENSE_TYPES[exp.type] || { bg: 'bg-slate-500' };
                         return (
                           <div key={exp.id} className="flex justify-between items-center bg-slate-950/50 p-3 rounded-xl border border-slate-800/50">
                             <div className="flex items-center">
-                              <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center mr-3 shrink-0"><Icon name="fa-tag" size={12} className="text-slate-400" /></div>
+                              <div className={`w-3 h-3 rounded-full mr-3 shrink-0 ${typeInfo.bg}`}></div>
                               <div>
                                 <p className="font-bold text-slate-200 text-sm">{exp.category}</p>
                                 <p className="text-[10px] text-slate-500 truncate max-w-[140px] md:max-w-[250px]">{formatDate(exp.date)} {exp.note && `• ${exp.note}`}</p>
@@ -795,9 +818,15 @@
               <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl p-5">
                 <div className="flex justify-between items-center mb-5 border-b border-slate-800 pb-3"><h3 className="text-lg font-bold text-white">Log Expense</h3><button onClick={() => setIsExpenseModalOpen(false)} className="text-slate-400"><Icon name="fa-xmark" size={20}/></button></div>
                 <div className="space-y-4">
+                  <div className="flex bg-slate-950 rounded-xl p-1 border border-slate-800">
+                    {Object.keys(EXPENSE_TYPES).map(key => (
+                      <button key={key} type="button" onClick={() => setNewExpense({...newExpense, type: key, category: EXPENSE_TYPES[key].categories[0]})} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${newExpense.type === key ? `${EXPENSE_TYPES[key].bg} text-white` : 'text-slate-500'}`}>{key}</button>
+                    ))}
+                  </div>
                   <div><label className="block text-xs text-slate-400 mb-1.5">Category</label>
                     <select value={newExpense.category} onChange={e => setNewExpense({...newExpense, category: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white">
-                      {EXPENSE_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      {(EXPENSE_TYPES[newExpense.type]?.categories || []).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      <option value="Other">Other</option>
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -806,7 +835,7 @@
                   </div>
                   <div><label className="block text-xs text-slate-400 mb-1.5">Note (Optional)</label><input type="text" value={newExpense.note} onChange={e => setNewExpense({...newExpense, note: e.target.value})} placeholder="e.g. Swiggy order" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
                   <p className="text-[10px] text-slate-500 text-center">All expenses automatically update your Budget charts.</p>
-                  <button type="button" onClick={handleSaveExpense} className={`w-full text-white font-bold py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500`}>Save Expense</button>
+                  <button type="button" onClick={handleSaveExpense} className={`w-full text-white font-bold py-3.5 rounded-xl ${EXPENSE_TYPES[newExpense.type]?.bg || 'bg-blue-600'}`}>Save Expense</button>
                 </div>
               </div>
             </div>
@@ -882,6 +911,7 @@
                     <div><label className="block text-xs text-slate-400 mb-1.5">Total Borrowed (₹)</label><input type="number" step="any" value={newLiability.totalAmount} onChange={e => setNewLiability({...newLiability, totalAmount: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
                     <div><label className="block text-xs text-slate-400 mb-1.5">Already Paid (₹)</label><input type="number" step="any" value={newLiability.paidAmount} onChange={e => setNewLiability({...newLiability, paidAmount: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
                     <div><label className="block text-xs text-slate-400 mb-1.5">Monthly EMI (₹)</label><input type="number" step="any" value={newLiability.monthlyEmi} onChange={e => setNewLiability({...newLiability, monthlyEmi: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                    <div><label className="block text-xs text-slate-400 mb-1.5">Loan Start Date</label><input type="date" value={newLiability.date} onChange={e => setNewLiability({...newLiability, date: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white [color-scheme:dark]" /></div>
                   </div>
                   <button type="button" onClick={handleSaveLiability} className="w-full bg-rose-600 hover:bg-rose-500 text-white font-bold py-3.5 rounded-xl">Save Debt</button>
                 </div>
