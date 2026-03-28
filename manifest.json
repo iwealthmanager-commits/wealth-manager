@@ -17,30 +17,16 @@
   ],
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/pwa-builder/pwa-starter/main/public/assets/icon-192.png",
+      "src": "https://raw.githubusercontent.com/facebook/create-react-app/main/packages/cra-template/template/public/logo192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://raw.githubusercontent.com/pwa-builder/pwa-starter/main/public/assets/icon-512.png",
+      "src": "https://raw.githubusercontent.com/facebook/create-react-app/main/packages/cra-template/template/public/logo512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "https://raw.githubusercontent.com/pwa-builder/pwa-starter/main/public/assets/screenshot1.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    },
-    {
-      "src": "https://raw.githubusercontent.com/pwa-builder/pwa-starter/main/public/assets/screenshot2.png",
-      "sizes": "720x1280",
-      "type": "image/png",
-      "form_factor": "narrow"
     }
   ]
 }
