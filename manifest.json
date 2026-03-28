@@ -3,14 +3,18 @@
   "name": "Wealth Manager",
   "short_name": "WealthMgr",
   "description": "Track your net worth, assets, debts, and monthly budget.",
-  "start_url": "./index.html",
+  "start_url": "/wealth-manager/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#10b981",
   "orientation": "portrait",
   "lang": "en-US",
-  "dir": "ltr",
-  "categories": ["finance", "business", "productivity"],
+  "dir": "auto",
+  "categories": [
+    "finance",
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "https://raw.githubusercontent.com/pwa-builder/pwa-starter/main/public/assets/icon-192.png",
