@@ -100,10 +100,7 @@
     const formatPercent = (val) => `${val > 0 ? '+' : ''}${(val || 0).toFixed(2)}%`;
     const formatDate = (dateString) => dateString ? new Date(dateString).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
     
-    // Safely gets the time to prevent sorting crashes with old corrupt dates
     const safeGetTime = (d) => { const t = new Date(d).getTime(); return isNaN(t) ? 0 : t; };
-
-    // Safely extracts month string for the header
     const getDisplayMonthName = (YYYY_MM) => {
       if (!YYYY_MM) return "This Month";
       const [year, month] = YYYY_MM.split('-');
@@ -114,7 +111,6 @@
       return `${monthNames[mIndex]} ${year}`;
     };
 
-    // --- BULLETPROOF PIE CHART COMPONENT ---
     const DonutChart = ({ data = [], title = "", totalLabel = "" }) => {
       try {
         const total = data.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
@@ -160,10 +156,7 @@
     };
 
     function App() {
-      const getTodayDate = () => {
-        try { return new Date().toISOString().split('T')[0]; } 
-        catch (e) { return "2026-03-27"; }
-      };
+      const getTodayDate = () => { try { return new Date().toISOString().split('T')[0]; } catch (e) { return "2026-03-27"; } };
       
       const [user, setUser] = useState(null);
       const [authLoading, setAuthLoading] = useState(true);
@@ -185,7 +178,10 @@
       const [expenses, setExpenses] = useState([]);
       const [incomeSources, setIncomeSources] = useState(['Primary Salary', 'Business Income', 'Freelance Work', 'Rental Income']);
 
-      // Modals
+      // --- TRIAL LOGIC STATE ---
+      const [isPremium, setIsPremium] = useState(false); 
+      const [trialDaysLeft, setTrialDaysLeft] = useState(60);
+
       const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
       const [passwordChangeData, setPasswordChangeData] = useState({ current: '', new: '', confirm: '' });
       const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -204,7 +200,6 @@
       const [editingLiabilityId, setEditingLiabilityId] = useState(null);
       const [editingExpenseId, setEditingExpenseId] = useState(null);
 
-      // Forms
       const [newAsset, setNewAsset] = useState({ category: 'IN_STOCK', name: '', invested: '', buyPrice: '', currentPrice: '', manualCurrentValue: '', date: getTodayDate() });
       const [newTransaction, setNewTransaction] = useState({ type: 'INCOME', source: 'Primary Salary', customSource: '', amount: '', date: getTodayDate() });
       const [newExpense, setNewExpense] = useState({ type: 'NEED', category: 'Groceries', amount: '', date: getTodayDate(), note: '' });
@@ -213,7 +208,18 @@
       const [emiData, setEmiData] = useState({ liabilityId: null, name: '', amount: '', date: getTodayDate() });
 
       useEffect(() => {
-        const unsubscribe = auth.onAuthStateChanged((currentUser) => { setUser(currentUser); setAuthLoading(false); });
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => { 
+          if(currentUser) {
+            const creationTime = currentUser.metadata.creationTime ? new Date(currentUser.metadata.creationTime) : new Date();
+            const now = new Date();
+            const diffTime = Math.abs(now - creationTime);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            const remaining = 60 - diffDays;
+            setTrialDaysLeft(remaining);
+          }
+          setUser(currentUser); 
+          setAuthLoading(false); 
+        });
         return () => unsubscribe();
       }, []);
 
@@ -224,7 +230,10 @@
         const unsubLiab = getUserPath(user.uid, 'liabilities').onSnapshot(snap => setLiabilities(snap.docs.map(doc => doc.data())));
         const unsubExp = getUserPath(user.uid, 'daily_expenses').onSnapshot(snap => setExpenses(snap.docs.map(doc => doc.data())));
         const unsubSettings = db.collection('artifacts').doc(PROJECT_APP_ID).collection('users').doc(user.uid).collection('settings').doc('profile').onSnapshot(docSnap => {
-            if (docSnap.exists && docSnap.data().incomeSources) setIncomeSources(docSnap.data().incomeSources);
+            if (docSnap.exists) {
+              if(docSnap.data().incomeSources) setIncomeSources(docSnap.data().incomeSources);
+              if(docSnap.data().isPremium) setIsPremium(docSnap.data().isPremium);
+            }
         });
         return () => { unsubHoldings(); unsubTx(); unsubLiab(); unsubExp(); unsubSettings(); };
       }, [user]);
@@ -327,7 +336,6 @@
         return groups;
       }, [portfolioStats.enrichedHoldings]);
 
-      // --- BULLETPROOF BUDGET CALCULATIONS ---
       const budgetStats = useMemo(() => {
         try {
           const safeMonth = selectedMonth || '';
@@ -359,7 +367,6 @@
           const wantsLimit = totalIncome * 0.30;
           const investLimit = totalIncome * 0.20;
 
-          // Safe percentage calculator prevents NaN errors from crashing the UI
           const safePct = (val, lim) => {
             if (!lim || lim <= 0) return 0;
             const p = (val / lim) * 100;
@@ -372,19 +379,14 @@
           const expenseData = Object.entries(expenseByCat).map(([label, value], i) => ({ label, value, color: colors[(i+3) % colors.length] })).sort((a,b) => b.value - a.value);
 
           return { 
-            monthlyIncome: totalIncome || 0, 
-            totalExpense: totalExpense || 0, 
-            remaining: (totalIncome - totalExpense) || 0, 
+            monthlyIncome: totalIncome || 0, totalExpense: totalExpense || 0, remaining: (totalIncome - totalExpense) || 0, 
             incomeData, expenseData, monthExp,
             needs: needs || 0, wants: wants || 0, investments: investments || 0, 
             needsLimit: needsLimit || 0, wantsLimit: wantsLimit || 0, investLimit: investLimit || 0,
-            needsPct: safePct(needs, needsLimit), 
-            wantsPct: safePct(wants, wantsLimit), 
-            investPct: safePct(investments, investLimit),
+            needsPct: safePct(needs, needsLimit), wantsPct: safePct(wants, wantsLimit), investPct: safePct(investments, investLimit),
             currentMonthExpenses: monthExp
           };
         } catch(err) {
-          console.error("Budget Error", err);
           return { monthlyIncome: 0, totalExpense: 0, remaining: 0, incomeData: [], expenseData: [], monthExp: [], needs: 0, wants: 0, investments: 0, needsLimit: 0, wantsLimit: 0, investLimit: 0, needsPct: 0, wantsPct: 0, investPct: 0, currentMonthExpenses: [] };
         }
       }, [transactions, expenses, selectedMonth]);
@@ -488,7 +490,7 @@
             <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl w-full max-w-md shadow-2xl flex flex-col items-center">
               <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-2xl mb-6 bg-[#0A2E13]"><CustomLogo className="w-full h-full" /></div>
               <h1 className="text-2xl font-black text-white mb-2">Wealth Manager</h1>
-              <p className="text-slate-400 text-sm mb-6">Track assets, budgets, and net worth.</p>
+              <p className="text-slate-400 text-sm mb-6 text-center">Track assets, budgets, and net worth.</p>
               <div className="flex w-full bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
                 <button onClick={() => { setAuthMode('signup'); setAuthError(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg ${authMode === 'signup' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Sign Up</button>
                 <button onClick={() => { setAuthMode('login'); setAuthError(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg ${authMode === 'login' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Log In</button>
@@ -523,8 +525,42 @@
         );
       }
 
+      // --- PAYWALL LOGIC: Lock app if trial is over and not premium ---
+      if (trialDaysLeft <= 0 && !isPremium) {
+        return (
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-3xl w-full max-w-md shadow-2xl text-center">
+              <div className="w-20 h-20 rounded-2xl overflow-hidden mx-auto mb-4 bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center justify-center"><Icon name="fa-clock" size={32} /></div>
+              <h1 className="text-2xl font-black text-white mb-2">Trial Expired</h1>
+              <p className="text-slate-400 text-sm mb-6">Your 60-day free trial has ended. Subscribe to Pro to continue managing your wealth.</p>
+              
+              <div className="space-y-3 mb-6">
+                {/* ✅ YOUR RAZORPAY LINKS ARE NOW HERE ✅ */}
+                <a href="https://rzp.io/rzp/2v71V9FC" target="_blank" rel="noopener noreferrer" className="flex justify-between items-center p-4 bg-slate-800 hover:bg-slate-700 rounded-xl border border-emerald-500/30 transition-colors">
+                  <div className="text-left"><p className="font-bold text-white text-lg">Monthly Pro</p><p className="text-xs text-emerald-400 font-medium">Cancel anytime</p></div>
+                  <div className="text-right"><p className="text-xl font-black text-white">₹149</p><p className="text-[10px] text-slate-500">/ month</p></div>
+                </a>
+                <a href="https://rzp.io/rzp/XCV4hScG" target="_blank" rel="noopener noreferrer" className="flex justify-between items-center p-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-lg shadow-emerald-500/20 transition-colors">
+                  <div className="text-left"><p className="font-bold text-white text-lg">Yearly Pro</p><p className="text-xs text-emerald-200 font-medium">Save 44%</p></div>
+                  <div className="text-right"><p className="text-xl font-black text-white">₹999</p><p className="text-[10px] text-emerald-100">/ year</p></div>
+                </a>
+              </div>
+              <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-300">Log Out</button>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="min-h-screen bg-slate-950 text-slate-200 font-sans pb-24 overflow-x-hidden">
+          
+          {/* TRIAL BANNER */}
+          {!isPremium && trialDaysLeft > 0 && (
+            <div className="bg-indigo-600 text-white text-xs font-bold text-center py-1.5 shadow-md">
+              🎁 Free Trial: {trialDaysLeft} Days Remaining
+            </div>
+          )}
+
           <header className="border-b border-slate-800 bg-slate-900/90 sticky top-0 z-40 backdrop-blur-md">
             <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
               <div className="flex items-center space-x-3">
@@ -591,7 +627,6 @@
                             <div className="flex justify-between items-start mb-4">
                               <div className="flex items-center space-x-3">
                                 <div className="p-2 rounded-lg" style={{ backgroundColor: `${catData.color}15`, color: catData.color }}><Icon name={catData.icon} size={18} /></div>
-                                {/* ✅ DEBT TAKEN DATE IS HERE */}
                                 <div><h3 className="font-bold text-slate-100">{lib.name}</h3><p className="text-[10px] text-slate-500 uppercase">{catData.name} • {formatDate(lib.date)}</p></div>
                               </div>
                               <div className="flex space-x-2">
@@ -762,6 +797,7 @@
               </div>
             )}
 
+
             {/* ================================================== */}
             {/* TAB 2: BUDGET & EXPENSE TRACKER (WITH PIE CHARTS) */}
             {/* ================================================== */}
@@ -817,7 +853,7 @@
                   </div>
                 </div>
 
-                {/* 4. Expense Log List */}
+                {/* 4. Expense Log List (Using safe Date Parsing) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                   <h2 className="text-lg font-bold text-white mb-4 flex items-center border-b border-slate-800 pb-3"><Icon name="fa-receipt" className="mr-2 text-slate-400"/> Expenses in {getDisplayMonthName(selectedMonth)}</h2>
                   <div className="space-y-2">
