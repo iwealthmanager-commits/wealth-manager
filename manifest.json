@@ -8,7 +8,7 @@
   "theme_color": "#10b981",
   "icons": [
     {
-      "src": "WealthManager-Icon.png",
+      "src": "https://raw.githubusercontent.com/pwa-builder/pwa-starter/main/public/assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
