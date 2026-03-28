@@ -1,7 +1,17 @@
-self.addEventListener('install', (e) => {
-  console.log('[Service Worker] Installed');
+const CACHE_NAME = "wealth-manager-v2";
+
+self.addEventListener("install", (event) => {
+  self.skipWaiting();
 });
 
-self.addEventListener('fetch', (e) => {
-  // This empty fetch handler is required for PWA installability
+self.addEventListener("activate", (event) => {
+  event.waitUntil(clients.claim());
+});
+
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    fetch(event.request).catch(() => {
+      return caches.match(event.request);
+    })
+  );
 });
