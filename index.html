@@ -64,13 +64,14 @@
       <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
     );
 
+    // MFs upgraded to Unit-based to support SIPs
     const ASSET_CATEGORIES = {
       CRYPTO: { name: 'Cryptocurrency', icon: 'fa-coins', color: '#f59e0b', hasUnits: true, unitName: 'Coins' },
       IN_STOCK: { name: 'Indian Stocks', icon: 'fa-arrow-trend-up', color: '#f97316', hasUnits: true, unitName: 'Shares' },
       US_STOCK: { name: 'US Stocks', icon: 'fa-globe', color: '#3b82f6', hasUnits: true, unitName: 'Shares' },
-      MF_LARGE: { name: 'MF - Large Cap', icon: 'fa-chart-pie', color: '#8b5cf6', hasUnits: false },
-      MF_MID: { name: 'MF - Mid Cap', icon: 'fa-chart-pie', color: '#d946ef', hasUnits: false },
-      MF_SMALL: { name: 'MF - Small Cap', icon: 'fa-chart-pie', color: '#ec4899', hasUnits: false },
+      MF_LARGE: { name: 'MF - Large Cap', icon: 'fa-chart-pie', color: '#8b5cf6', hasUnits: true, unitName: 'Units' },
+      MF_MID: { name: 'MF - Mid Cap', icon: 'fa-chart-pie', color: '#d946ef', hasUnits: true, unitName: 'Units' },
+      MF_SMALL: { name: 'MF - Small Cap', icon: 'fa-chart-pie', color: '#ec4899', hasUnits: true, unitName: 'Units' },
       REAL_ESTATE: { name: 'Real Estate', icon: 'fa-house', color: '#10b981', hasUnits: false },
       COMMODITY: { name: 'Commodities', icon: 'fa-gem', color: '#eab308', hasUnits: true, unitName: 'Units' },
       BOND: { name: 'Bonds', icon: 'fa-landmark', color: '#64748b', hasUnits: false },
@@ -111,7 +112,7 @@
       return `${monthNames[mIndex]} ${year}`;
     };
 
-    // --- NEW CRASH-PROOF STACKED BAR CHART ---
+    // --- STACKED BAR CHART ---
     const StackedBarChart = ({ data = [], title = "", totalLabel = "" }) => {
       const total = data.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
       if (total <= 0) return <div className="text-center text-slate-500 py-6 bg-slate-950/30 rounded-xl border border-slate-800/50"><Icon name="fa-chart-pie" size={24} className="mb-2 opacity-50"/><p className="text-sm">No {title.toLowerCase()} this month</p></div>;
@@ -144,7 +145,7 @@
                 </div>
                 <div className="text-right shrink-0">
                   <span className="font-bold text-white mr-2">{formatINR(item.value)}</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 inline-block w-10 text-center">{((item.value / total) * 100).toFixed(0)}%</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 inline-block w-10 text-center">{((item.value / total) * 100).toFixed(0)}%</span>
                 </div>
               </div>
             ))}
@@ -298,7 +299,10 @@
         if (isTracked) {
           const buyP = parseFloat(newAsset.buyPrice) || 0; const curP = parseFloat(newAsset.currentPrice) || 0;
           return { quantity: buyP > 0 ? invested / buyP : 0, currentValue: (buyP > 0 ? invested / buyP : 0) * curP, currentPrice: curP };
-        } else return { quantity: 0, currentValue: parseFloat(newAsset.manualCurrentValue) || invested, currentPrice: null };
+        } else {
+          const parsedVal = parseFloat(newAsset.manualCurrentValue);
+          return { quantity: 0, currentValue: isNaN(parsedVal) ? invested : parsedVal, currentPrice: null };
+        }
       }, [newAsset]);
 
       const portfolioStats = useMemo(() => {
@@ -339,8 +343,16 @@
       const budgetStats = useMemo(() => {
         try {
           const safeMonth = selectedMonth || '';
+          const monthStart = safeMonth + '-01';
+          
           const monthTx = transactions.filter(t => t && t.date && t.date.startsWith(safeMonth));
           const monthExp = expenses.filter(e => e && e.date && e.date.startsWith(safeMonth));
+
+          let priorIncome = 0;
+          let priorExp = 0;
+          transactions.forEach(t => { if (t.type === 'INCOME' && t.date && t.date < monthStart) priorIncome += parseFloat(t.amount) || 0; });
+          expenses.forEach(e => { if (e.date && e.date < monthStart) priorExp += parseFloat(e.amount) || 0; });
+          const carryForward = priorIncome - priorExp;
 
           let totalIncome = 0; const incomeBySource = {};
           monthTx.filter(t => t.type === 'INCOME').forEach(t => {
@@ -363,9 +375,10 @@
             if (e.type === 'INVESTMENT') investments += amt;
           });
 
-          const needsLimit = totalIncome * 0.50;
-          const wantsLimit = totalIncome * 0.30;
-          const investLimit = totalIncome * 0.20;
+          const effectiveIncome = totalIncome + (carryForward > 0 ? carryForward : 0);
+          const needsLimit = effectiveIncome * 0.50;
+          const wantsLimit = effectiveIncome * 0.30;
+          const investLimit = effectiveIncome * 0.20;
 
           const safePct = (val, lim) => {
             if (!lim || lim <= 0) return 0;
@@ -379,7 +392,8 @@
           const expenseData = Object.entries(expenseByCat).map(([label, value], i) => ({ label, value, color: colors[(i+3) % colors.length] })).sort((a,b) => b.value - a.value);
 
           return { 
-            monthlyIncome: totalIncome || 0, totalExpense: totalExpense || 0, remaining: (totalIncome - totalExpense) || 0, 
+            monthlyIncome: totalIncome || 0, carryForward: carryForward || 0, totalExpense: totalExpense || 0, 
+            remaining: (totalIncome - totalExpense) || 0, 
             incomeData, expenseData, monthExp,
             needs: needs || 0, wants: wants || 0, investments: investments || 0, 
             needsLimit: needsLimit || 0, wantsLimit: wantsLimit || 0, investLimit: investLimit || 0,
@@ -387,11 +401,12 @@
             currentMonthExpenses: monthExp
           };
         } catch(err) {
-          return { monthlyIncome: 0, totalExpense: 0, remaining: 0, incomeData: [], expenseData: [], monthExp: [], needs: 0, wants: 0, investments: 0, needsLimit: 0, wantsLimit: 0, investLimit: 0, needsPct: 0, wantsPct: 0, investPct: 0, currentMonthExpenses: [] };
+          return { monthlyIncome: 0, carryForward: 0, totalExpense: 0, remaining: 0, incomeData: [], expenseData: [], monthExp: [], needs: 0, wants: 0, investments: 0, needsLimit: 0, wantsLimit: 0, investLimit: 0, needsPct: 0, wantsPct: 0, investPct: 0, currentMonthExpenses: [] };
         }
       }, [transactions, expenses, selectedMonth]);
 
-      const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested - expenses.reduce((sum, e) => sum + (parseFloat(e.amount)||0), 0);
+      const nonInvestmentExpenses = expenses.filter(e => e.type !== 'INVESTMENT').reduce((sum, e) => sum + (parseFloat(e.amount)||0), 0);
+      const availableCash = transactionStats.netCashFlow - portfolioStats.totalInvested - nonInvestmentExpenses;
       const totalNetWorth = portfolioStats.totalCurrent + availableCash - liabilityStats.totalRemaining;
 
       // --- CRUD ---
@@ -408,7 +423,35 @@
         try {
           if (!user || !newAsset.name || !newAsset.invested) return alert("Fill Name and Invested fields.");
           const assetId = editingAssetId || Date.now().toString();
-          await getUserPath(user.uid, 'holdings').doc(assetId).set({ id: assetId, category: newAsset.category, name: newAsset.name, invested: parseFloat(newAsset.invested), current: formCalculations.currentValue, currentPrice: parseFloat(newAsset.currentPrice) || 0, quantity: formCalculations.quantity, buyPrice: parseFloat(newAsset.buyPrice) || 0, date: newAsset.date, yieldEarned: editingAssetId ? (holdings.find(h=>h.id===editingAssetId)?.yieldEarned || 0) : 0 });
+          
+          const isUnitBased = ASSET_CATEGORIES[newAsset.category]?.hasUnits;
+          const newPrice = parseFloat(newAsset.currentPrice) || 0;
+
+          const finalCurrentValue = isUnitBased 
+            ? formCalculations.currentValue 
+            : (parseFloat(newAsset.manualCurrentValue) || parseFloat(newAsset.invested));
+
+          await getUserPath(user.uid, 'holdings').doc(assetId).set({ 
+            id: assetId, category: newAsset.category, name: newAsset.name, 
+            invested: parseFloat(newAsset.invested), current: finalCurrentValue, 
+            currentPrice: newPrice, quantity: formCalculations.quantity, 
+            buyPrice: parseFloat(newAsset.buyPrice) || 0, date: newAsset.date, 
+            yieldEarned: editingAssetId ? (holdings.find(h=>h.id===editingAssetId)?.yieldEarned || 0) : 0 
+          });
+
+          // GLOBAL PRICE SYNC: Updates all previous buys of this same asset!
+          if (isUnitBased && newPrice > 0) {
+            const matchingLots = holdings.filter(h => h.category === newAsset.category && h.name === newAsset.name && h.id !== assetId);
+            for (const lot of matchingLots) {
+              const lotQty = parseFloat(lot.quantity) || 0;
+              const updatedCurrentVal = lotQty * newPrice;
+              await getUserPath(user.uid, 'holdings').doc(lot.id).update({
+                currentPrice: newPrice,
+                current: updatedCurrentVal
+              });
+            }
+          }
+
           setIsAddModalOpen(false);
         } catch (error) { alert(error.message); }
       };
@@ -525,7 +568,7 @@
         );
       }
 
-      // --- PAYWALL LOGIC: Lock app if trial is over and not premium ---
+      // --- PAYWALL LOGIC ---
       if (trialDaysLeft <= 0 && !isPremium) {
         return (
           <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
@@ -567,7 +610,6 @@
                 <div><h1 className="text-lg font-bold text-white">Wealth Manager</h1><p className="text-[10px] text-slate-400">{activeTab === 'wealth' ? 'Portfolio Dashboard' : 'Monthly Analytics'}</p></div>
               </div>
               <div className="flex items-center space-x-4">
-                {/* 🌟 FIXED YOUTUBE ICON 🌟 */}
                 <a href="https://www.youtube.com/@WealthManager-official" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="Watch Tutorial">
                   <i className="fa-brands fa-youtube" style={{ fontSize: '22px' }}></i>
                 </a>
@@ -591,11 +633,18 @@
                     <p className={`text-2xl md:text-3xl font-black ${totalNetWorth >= 0 ? 'text-white' : 'text-rose-400'}`}>{formatINR(totalNetWorth)}</p>
                     <p className="text-[10px] text-slate-400 mt-1 font-semibold">(Assets + Cash) - Debt</p>
                   </div>
+                  
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6">
                     <div className="flex items-center text-emerald-400 mb-2"><Icon name="fa-chart-pie" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">Invested Assets</h2></div>
-                    <p className="text-xl font-bold text-white">{formatINR(portfolioStats.totalCurrent)}</p>
+                    <div className="flex items-baseline">
+                      <p className="text-xl font-bold text-white">{formatINR(portfolioStats.totalCurrent)}</p>
+                      <span className={`text-xs ml-2 mb-0.5 font-bold ${portfolioStats.capitalGain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {portfolioStats.capitalGain >= 0 ? '+' : ''}{portfolioStats.totalInvested > 0 ? (portfolioStats.capitalGain / portfolioStats.totalInvested * 100).toFixed(2) : 0}%
+                      </span>
+                    </div>
                     <p className="text-xs text-slate-500 mt-1">Cost: {formatINR(portfolioStats.totalInvested)}</p>
                   </div>
+
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 md:p-6">
                     <div className="flex items-center text-blue-400 mb-2"><Icon name="fa-money-bill-wave" size={16} className="mr-2" /><h2 className="text-sm font-bold uppercase tracking-wider">Available Cash</h2></div>
                     <p className={`text-xl font-bold ${availableCash >= 0 ? 'text-white' : 'text-rose-400'}`}>{formatINR(availableCash)}</p>
@@ -799,13 +848,14 @@
               </div>
             )}
 
+
             {/* ================================================== */}
-            {/* TAB 2: CRASH-PROOF BUDGET & EXPENSE TRACKER */}
+            {/* TAB 2: BUDGET & EXPENSE TRACKER */}
             {/* ================================================== */}
             {activeTab === 'budget' && (
               <div className="space-y-6 animate-fade-in">
                 
-                {/* 1. Date Selector & Add Button */}
+                {/* Date Selector & Add Button */}
                 <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm">
                   <div className="flex items-center">
                     <Icon name="fa-calendar-day" className="mr-3 text-slate-400" size={20} />
@@ -817,22 +867,23 @@
                   <button onClick={() => { setEditingExpenseId(null); setIsExpenseModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30 transition-transform active:scale-95"><Icon name="fa-plus" size={18}/></button>
                 </div>
 
-                {/* 2. SAFE STACKED BAR CHARTS */}
+                {/* Charts */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                  <StackedBarChart data={budgetStats.incomeData} title="Income Contribution" totalLabel="Total Income" />
+                  <StackedBarChart data={budgetStats.incomeData} title="Income Contribution Breakdown" totalLabel="Total Monthly Flow" />
                   <StackedBarChart data={budgetStats.expenseData} title="Expense Breakdown" totalLabel="Total Spent" />
                 </div>
 
-                {/* 3. Budget Summary & Progress */}
+                {/* Budget Summary & Progress */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-                  <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+                  <div className="flex justify-between items-end mb-6 border-b border-slate-800 pb-4">
                     <div>
-                      <h2 className="text-slate-400 text-xs font-bold uppercase tracking-wider">Remaining Cash Flow</h2>
+                      <h2 className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Remaining This Month</h2>
                       <p className={`text-2xl font-black ${budgetStats.remaining >= 0 ? 'text-white' : 'text-rose-400'}`}>{formatINR(budgetStats.remaining)}</p>
                     </div>
                     <div className="text-right">
-                       <h2 className="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Earned</h2>
-                       <p className="text-xl font-bold text-emerald-400">{formatINR(budgetStats.monthlyIncome)}</p>
+                       <h2 className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Total Available Pool</h2>
+                       <p className="text-lg font-bold text-emerald-400">{formatINR(budgetStats.monthlyIncome + budgetStats.carryForward)}</p>
+                       <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Includes {formatINR(budgetStats.carryForward)} Rollover</p>
                     </div>
                   </div>
 
@@ -854,7 +905,7 @@
                   </div>
                 </div>
 
-                {/* 4. Expense Log List */}
+                {/* Expense Log List */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
                   <h2 className="text-lg font-bold text-white mb-4 flex items-center border-b border-slate-800 pb-3"><Icon name="fa-receipt" className="mr-2 text-slate-400"/> Expenses in {getDisplayMonthName(selectedMonth)}</h2>
                   <div className="space-y-2">
@@ -952,7 +1003,7 @@
                   ) : (
                     <div className="grid grid-cols-2 gap-4">
                       <div><label className="block text-xs text-slate-400 mb-1.5">Total Invested (₹)</label><input type="number" step="any" value={newAsset.invested} onChange={e => setNewAsset({...newAsset, invested: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
-                      <div><label className="block text-xs text-slate-400 mb-1.5">Current Value (₹)</label><input type="number" step="any" value={newAsset.manualCurrentValue} onChange={e => setNewAsset({...newAsset, manualCurrentValue: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
+                      <div><label className="block text-xs text-slate-400 mb-1.5">Current Value (₹)</label><input type="number" step="any" value={newAsset.manualCurrentValue} onChange={e => setNewAsset({...newAsset, manualCurrentValue: e.target.value})} placeholder="Leaves blank for exactly invested" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></div>
                     </div>
                   )}
                   <button type="button" onClick={handleSaveAsset} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl">Save Asset</button>
