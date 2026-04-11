@@ -173,11 +173,20 @@
       const [holdings, setHoldings] = useState([]); 
       const [liabilities, setLiabilities] = useState([]);
       const [expenses, setExpenses] = useState([]);
+      
+      // --- TRIPS & OCCASIONS STATE ---
+      const [specialEvents, setSpecialEvents] = useState([]);
+      const [activeEvent, setActiveEvent] = useState(null);
+      const [activeEventExpenses, setActiveEventExpenses] = useState([]);
+      const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+      const [newEventName, setNewEventName] = useState('');
+      const [newEventExpense, setNewEventExpense] = useState({ description: '', amount: '', date: getTodayDate() });
+
       const [incomeSources, setIncomeSources] = useState(['Primary Salary', 'Business Income', 'Freelance Work', 'Rental Income']);
 
       // --- TEST MODE TRIAL LOGIC ---
       const [isPremium, setIsPremium] = useState(false); 
-      const [trialDaysLeft, setTrialDaysLeft] = useState(0); // <-- Set to 0 to trigger paywall
+      const [trialDaysLeft, setTrialDaysLeft] = useState(0); 
 
       const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
       const [passwordChangeData, setPasswordChangeData] = useState({ current: '', new: '', confirm: '' });
@@ -224,19 +233,29 @@
       }, []);
 
       useEffect(() => {
-        if (!user) { setHoldings([]); setTransactions([]); setLiabilities([]); setExpenses([]); return; }
+        if (!user) { setHoldings([]); setTransactions([]); setLiabilities([]); setExpenses([]); setSpecialEvents([]); return; }
         const unsubHoldings = getUserPath(user.uid, 'holdings').onSnapshot(snap => setHoldings(snap.docs.map(doc => doc.data())));
         const unsubTx = getUserPath(user.uid, 'transactions').onSnapshot(snap => setTransactions(snap.docs.map(doc => doc.data())));
         const unsubLiab = getUserPath(user.uid, 'liabilities').onSnapshot(snap => setLiabilities(snap.docs.map(doc => doc.data())));
         const unsubExp = getUserPath(user.uid, 'daily_expenses').onSnapshot(snap => setExpenses(snap.docs.map(doc => doc.data())));
+        const unsubEvents = getUserPath(user.uid, 'specialEvents').orderBy('createdAt', 'desc').onSnapshot(snap => setSpecialEvents(snap.docs.map(doc => doc.data())));
         const unsubSettings = db.collection('artifacts').doc(PROJECT_APP_ID).collection('users').doc(user.uid).collection('settings').doc('profile').onSnapshot(docSnap => {
             if (docSnap.exists) {
               if(docSnap.data().incomeSources) setIncomeSources(docSnap.data().incomeSources);
               if(docSnap.data().isPremium) setIsPremium(docSnap.data().isPremium);
             }
         });
-        return () => { unsubHoldings(); unsubTx(); unsubLiab(); unsubExp(); unsubSettings(); };
+        return () => { unsubHoldings(); unsubTx(); unsubLiab(); unsubExp(); unsubEvents(); unsubSettings(); };
       }, [user]);
+
+      // --- NEW EFFECT FOR LOADING ACTIVE EVENT EXPENSES ---
+      useEffect(() => {
+        if (!user || !activeEvent) return;
+        const unsub = getUserPath(user.uid, 'specialEvents').doc(activeEvent.id).collection('expenses').orderBy('date', 'desc').onSnapshot(snap => {
+            setActiveEventExpenses(snap.docs.map(doc => doc.data()));
+        });
+        return () => unsub();
+      }, [user, activeEvent]);
 
       const handleAuthSubmit = async (e) => {
         e.preventDefault(); setAuthError('');
@@ -273,6 +292,70 @@
         if (passwordChangeData.new !== passwordChangeData.confirm) return alert('PINs do not match');
         setCustomPassword(passwordChangeData.new); setIsSettingsModalOpen(false); setPasswordChangeData({ current: '', new: '', confirm: '' });
       };
+
+      // --- TRIPS & OCCASIONS FUNCTIONS ---
+      const handleCreateEvent = async (e) => {
+        e.preventDefault();
+        if (!user || !newEventName) return;
+        try {
+          const eventId = Date.now().toString();
+          await getUserPath(user.uid, 'specialEvents').doc(eventId).set({
+             id: eventId,
+             name: newEventName,
+             totalSpent: 0,
+             createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          setNewEventName('');
+          setIsEventModalOpen(false);
+        } catch(err) { alert(err.message); }
+      };
+
+      const handleAddEventExpense = async (e) => {
+        e.preventDefault();
+        if (!user || !activeEvent || !newEventExpense.amount || !newEventExpense.description) return;
+        try {
+          const amt = parseFloat(newEventExpense.amount);
+          const expId = Date.now().toString();
+          const eventRef = getUserPath(user.uid, 'specialEvents').doc(activeEvent.id);
+
+          await db.runTransaction(async (transaction) => {
+             const eventDoc = await transaction.get(eventRef);
+             if (!eventDoc.exists) throw "Event missing";
+             const newTotal = (eventDoc.data().totalSpent || 0) + amt;
+             transaction.update(eventRef, { totalSpent: newTotal });
+
+             const expRef = eventRef.collection('expenses').doc(expId);
+             transaction.set(expRef, {
+                id: expId,
+                description: newEventExpense.description,
+                amount: amt,
+                date: newEventExpense.date,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+             });
+          });
+          setNewEventExpense({ description: '', amount: '', date: getTodayDate() });
+        } catch(err) { alert(err.message); }
+      };
+
+      const deleteEventExpense = async (expId, amt) => {
+        const eventRef = getUserPath(user.uid, 'specialEvents').doc(activeEvent.id);
+        await db.runTransaction(async (transaction) => {
+           const eventDoc = await transaction.get(eventRef);
+           if (!eventDoc.exists) throw "Event missing";
+           const newTotal = Math.max(0, (eventDoc.data().totalSpent || 0) - amt);
+           transaction.update(eventRef, { totalSpent: newTotal });
+           const expRef = eventRef.collection('expenses').doc(expId);
+           transaction.delete(expRef);
+        });
+      };
+      
+      const deleteEventFolder = async (eventId) => {
+         if(window.confirm("Delete this entire event folder?")) {
+             await getUserPath(user.uid, 'specialEvents').doc(eventId).delete();
+             if(activeEvent?.id === eventId) setActiveEvent(null);
+         }
+      };
+
 
       const transactionStats = useMemo(() => {
         let totalIncome = 0; let totalWithdrawal = 0;
@@ -599,7 +682,7 @@
             <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#0A2E13]"><CustomLogo className="w-full h-full" /></div>
-                <div><h1 className="text-lg font-bold text-white">Wealth Manager</h1><p className="text-[10px] text-slate-400">{activeTab === 'wealth' ? 'Portfolio Dashboard' : 'Monthly Analytics'}</p></div>
+                <div><h1 className="text-lg font-bold text-white">Wealth Manager</h1><p className="text-[10px] text-slate-400">{activeTab === 'wealth' ? 'Portfolio Dashboard' : activeTab === 'events' ? 'Trips & Occasions' : 'Monthly Analytics'}</p></div>
               </div>
               <div className="flex items-center space-x-4">
                 <a href="https://www.youtube.com/@WealthManager-official" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="Watch Tutorial">
@@ -910,18 +993,115 @@
                 </div>
               </div>
             )}
+
+            {/* --- NEW EVENTS & TRIPS TAB --- */}
+            {activeTab === 'events' && (
+              <div className="space-y-6 animate-fade-in">
+                {!activeEvent ? (
+                  <>
+                    <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm">
+                      <div className="flex items-center">
+                        <Icon name="fa-folder-open" className="mr-3 text-indigo-400" size={20} />
+                        <div>
+                          <h2 className="text-lg font-bold text-white">Event Folders</h2>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Isolated Budgets</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setIsEventModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30 transition-transform active:scale-95"><Icon name="fa-plus" size={18}/></button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {specialEvents.length === 0 ? (
+                        <div className="text-center p-8 border border-slate-800 border-dashed rounded-2xl md:col-span-2"><p className="text-slate-500 text-sm">No events created. Add a trip or occasion.</p></div>
+                      ) : (
+                        specialEvents.map(ev => (
+                          <div key={ev.id} onClick={() => setActiveEvent(ev)} className="bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-5 cursor-pointer transition-colors shadow-sm flex flex-col justify-between">
+                             <div className="flex justify-between items-start mb-4">
+                               <h3 className="font-bold text-slate-100 text-lg">{ev.name}</h3>
+                               <button onClick={(e) => { e.stopPropagation(); deleteEventFolder(ev.id); }} className="text-slate-600 hover:text-rose-400 p-1"><Icon name="fa-trash-can" size={14}/></button>
+                             </div>
+                             <div>
+                               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Total Spent</p>
+                               <p className="text-xl font-black text-indigo-400">{formatINR(ev.totalSpent)}</p>
+                             </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => setActiveEvent(null)} className="text-slate-400 hover:text-white flex items-center text-sm font-bold mb-2">
+                      <Icon name="fa-arrow-left" className="mr-2" /> Back to Folders
+                    </button>
+                    
+                    <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                       <h2 className="text-2xl font-black text-white mb-1">{activeEvent.name}</h2>
+                       <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-4">Total Event Spend</p>
+                       <p className="text-4xl font-black text-indigo-400">{formatINR(activeEvent.totalSpent)}</p>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+                       <h3 className="text-sm font-bold text-slate-300 mb-4 border-b border-slate-800 pb-2">Add New Expense to {activeEvent.name}</h3>
+                       <form onSubmit={handleAddEventExpense} className="flex flex-col sm:flex-row gap-3">
+                         <input type="text" required placeholder="What did you pay for? (e.g. Flight)" value={newEventExpense.description} onChange={e => setNewEventExpense({...newEventExpense, description: e.target.value})} className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/>
+                         <input type="number" required step="any" placeholder="Amount (₹)" value={newEventExpense.amount} onChange={e => setNewEventExpense({...newEventExpense, amount: e.target.value})} className="w-full sm:w-32 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/>
+                         <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-xl shrink-0 whitespace-nowrap">Add</button>
+                       </form>
+                    </div>
+
+                    <div className="space-y-2 mt-6">
+                       <h3 className="text-sm font-bold text-slate-400 mb-3 ml-1">Expense Log</h3>
+                       {activeEventExpenses.length === 0 ? (
+                         <p className="text-slate-500 text-center py-4 text-sm border border-slate-800 border-dashed rounded-xl">No expenses yet.</p>
+                       ) : (
+                         activeEventExpenses.map(exp => (
+                           <div key={exp.id} className="flex justify-between items-center bg-slate-900 p-3.5 rounded-xl border border-slate-800 shadow-sm">
+                             <div>
+                               <p className="font-bold text-slate-200 text-sm">{exp.description}</p>
+                               <p className="text-[10px] text-slate-500">{formatDate(exp.date)}</p>
+                             </div>
+                             <div className="flex items-center">
+                               <span className="font-bold text-rose-400 mr-4">-{formatINR(exp.amount)}</span>
+                               <button onClick={() => deleteEventExpense(exp.id, exp.amount)} className="text-slate-600 hover:text-rose-400 p-2"><Icon name="fa-trash-can" size={14}/></button>
+                             </div>
+                           </div>
+                         ))
+                       )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </main>
 
           <div className="fixed bottom-0 w-full bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-6 py-3 flex justify-around items-center z-40 pb-safe">
-            <button onClick={() => setActiveTab('wealth')} className={`flex flex-col items-center transition-colors w-20 ${activeTab === 'wealth' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <button onClick={() => { setActiveTab('wealth'); setActiveEvent(null); }} className={`flex flex-col items-center transition-colors flex-1 ${activeTab === 'wealth' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>
               <Icon name="fa-building-columns" size={20} className="mb-1" />
               <span className="text-[10px] font-bold uppercase tracking-wider">Wealth</span>
             </button>
-            <button onClick={() => setActiveTab('budget')} className={`flex flex-col items-center transition-colors w-20 ${activeTab === 'budget' ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            <button onClick={() => { setActiveTab('budget'); setActiveEvent(null); }} className={`flex flex-col items-center transition-colors flex-1 ${activeTab === 'budget' ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}>
               <Icon name="fa-chart-pie" size={20} className="mb-1" />
               <span className="text-[10px] font-bold uppercase tracking-wider">Budget</span>
             </button>
+            <button onClick={() => setActiveTab('events')} className={`flex flex-col items-center transition-colors flex-1 ${activeTab === 'events' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+              <Icon name="fa-map-location-dot" size={20} className="mb-1" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">Events</span>
+            </button>
           </div>
+
+          {isEventModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl p-5">
+                <div className="flex justify-between items-center mb-5 border-b border-slate-800 pb-3"><h3 className="text-lg font-bold text-white">New Event Folder</h3><button onClick={() => setIsEventModalOpen(false)} className="text-slate-400"><Icon name="fa-xmark" size={20}/></button></div>
+                <form onSubmit={handleCreateEvent} className="space-y-4">
+                  <div><label className="block text-xs text-slate-400 mb-1.5">Folder Name</label><input type="text" required placeholder="e.g. Goa Trip April 2026" value={newEventName} onChange={e => setNewEventName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-indigo-500"/></div>
+                  <p className="text-[10px] text-slate-500 text-center">Expenses added here will NOT show up in your regular monthly budget.</p>
+                  <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl hover:bg-indigo-500">Create Folder</button>
+                </form>
+              </div>
+            </div>
+          )}
 
           {isExpenseModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end justify-center p-0 sm:items-center">
@@ -990,7 +1170,7 @@
                   {newTransaction.type === 'INCOME' ? (
                     <><label className="block text-xs text-slate-400 mb-1.5">Source (Used in Pie Chart)</label>
                     <select value={newTransaction.source} onChange={e => setNewTransaction({...newTransaction, source: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white">{incomeSources.map(src => <option key={src} value={src}>{src}</option>)}<option value="NEW_SOURCE">+ Add Custom Source</option></select>
-                    {newTransaction.source === 'NEW_SOURCE' && <input type="text" value={newTransaction.customSource} onChange={e => setNewTransaction({...newTransaction, customSource: e.target.value})} placeholder="Custom Source" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white mt-2"/>}</>
+                    {newTransaction.source === 'NEW_SOURCE' && <input type="text" value={newTransaction.customSource} onChange={e => setNewTransaction({...newTransaction, customSource: e.target.value})} placeholder="Custom Source" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white mt-2"/></>
                   ) : (
                     <><label className="block text-xs text-slate-400 mb-1.5">Reason</label><input type="text" value={newTransaction.customSource} onChange={e => setNewTransaction({...newTransaction, customSource: e.target.value})} placeholder="e.g. Move to checking account" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white"/></>
                   )}
